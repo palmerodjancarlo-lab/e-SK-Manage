@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import skLogo from '../../assets/sk-logo.png'
+import skLogo from '../../assets/sk-logo.svg'
 import toast from 'react-hot-toast'
 
 const NAV_ITEMS = [

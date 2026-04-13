@@ -1,12 +1,13 @@
 const express     = require('express')
 const router      = express.Router()
-const pointsCtrl  = require('../controllers/pointsController')
+const ctrl        = require('../controllers/pointsController')
 const { protect }   = require('../middleware/authMiddleware')
 const { authorize } = require('../middleware/roleMiddleware')
 
-router.get('/my',          protect, pointsCtrl.getMyPoints)
-router.get('/leaderboard', protect, pointsCtrl.getLeaderboard)
-router.post('/award',      protect, authorize('admin','sk_officer'), pointsCtrl.awardPoints)
-router.post('/redeem',     protect, pointsCtrl.redeemPoints)
+// IMPORTANT: specific routes before parameterized ones
+router.get('/my',          protect, ctrl.getMyPoints)
+router.get('/history',     protect, ctrl.getHistory)      // points history for logged-in user
+router.get('/leaderboard', protect, ctrl.getLeaderboard)
+router.post('/award',      protect, authorize('admin','sk_officer'), ctrl.awardPoints)
 
 module.exports = router

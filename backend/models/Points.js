@@ -1,32 +1,32 @@
+// Points.js — matches exactly what meetingController.js saves
 const mongoose = require('mongoose')
 
 const PointsSchema = new mongoose.Schema({
   user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    type:     mongoose.Schema.Types.ObjectId,
+    ref:      'User',
+    required: true,
   },
-  points: {
-    type: Number,
-    required: true
+  meeting: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref:  'Meeting',
+  },
+  pointsEarned: {
+    type:     Number,
+    required: true,
   },
   type: {
-    type: String,
-    enum: ['earned', 'redeemed'],
-    required: true
+    type:    String,
+    enum:    ['earned', 'redeemed', 'awarded'],
+    default: 'earned',
   },
   reason: {
     type: String,
-    required: true
   },
-  reference: {
-    type: mongoose.Schema.Types.ObjectId,
-    refPath: 'referenceModel'
+  checkedInAt: {
+    type:    Date,
+    default: Date.now,
   },
-  referenceModel: {
-    type: String,
-    enum: ['Meeting', 'Program', 'Reward']
-  }
 }, { timestamps: true })
 
 module.exports = mongoose.model('Points', PointsSchema)
