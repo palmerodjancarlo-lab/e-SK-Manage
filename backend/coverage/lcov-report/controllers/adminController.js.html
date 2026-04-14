@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">40% </span>
+                <span class="strong">54.11% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>34/85</span>
+                <span class='fraction'>46/85</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">19.35% </span>
+                <span class="strong">48.38% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>6/31</span>
+                <span class='fraction'>15/31</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">50% </span>
+                <span class="strong">60% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>5/10</span>
+                <span class='fraction'>6/10</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">41.46% </span>
+                <span class="strong">54.87% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>34/82</span>
+                <span class='fraction'>45/82</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line medium'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -264,9 +264,9 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -338,18 +338,16 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -358,13 +356,15 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -380,9 +380,9 @@
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -455,9 +455,9 @@ const AuditLog = require('../models/AuditLog')
 const getUsers = async (req, res) =&gt; {
   try {
     const users = await User.find().sort({ createdAt: -1 }).select('-password')
-<span class="cstat-no" title="statement not covered" >    res.json({ users })</span>
+    res.json({ users })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+<span class="cstat-no" title="statement not covered" >    res.status(500).json({ message: error.message })</span>
   }
 }
 &nbsp;
@@ -528,37 +528,37 @@ const rejectSKApplication = <span class="fstat-no" title="function not covered" 
 }
 &nbsp;
 // @POST /api/admin/create-user
-const createUser = <span class="fstat-no" title="function not covered" >as</span>ync (req, res) =&gt; {
-<span class="cstat-no" title="statement not covered" >  try {</span>
-    const { firstName, lastName, email, password, role, municipality, barangay, position } = <span class="cstat-no" title="statement not covered" >req.body</span>
-    const allowedRoles = <span class="cstat-no" title="statement not covered" >['sk_officer']</span>
-<span class="cstat-no" title="statement not covered" >    if (!allowedRoles.includes(role)) {</span>
-<span class="cstat-no" title="statement not covered" >      return res.status(400).json({ message: 'Can only create SK Officer accounts.' })</span>
+const createUser = async (req, res) =&gt; {
+  try {
+    const { firstName, lastName, email, password, role, municipality, barangay, position } = req.body
+    const allowedRoles = ['sk_officer']
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({ message: 'Can only create SK Officer accounts.' })
     }
-    const exists = <span class="cstat-no" title="statement not covered" >await User.findOne({ email })</span>
-<span class="cstat-no" title="statement not covered" >    if (exists) <span class="cstat-no" title="statement not covered" >return res.status(400).json({ message: 'Email already registered.' })</span></span>
+    const exists = await User.findOne({ email })
+    if (exists) return res.status(400).json({ message: 'Email already registered.' })
 &nbsp;
-    const user = <span class="cstat-no" title="statement not covered" >await User.create({</span>
+    const user = await User.create({
       firstName, lastName, email,
-      password:     password || 'SKManage2026',
+      password:     password || <span class="branch-1 cbranch-no" title="branch not covered" >'SKManage2026',</span>
       role,
-      municipality: municipality || 'Boac',
-      barangay:     barangay    || '',
-      position:     position    || '',
+      municipality: municipality || <span class="branch-1 cbranch-no" title="branch not covered" >'Boac',</span>
+      barangay:     barangay    || <span class="branch-1 cbranch-no" title="branch not covered" >'',</span>
+      position:     position    || <span class="branch-1 cbranch-no" title="branch not covered" >'',</span>
       isVerified:   true,
       isActive:     true,
     })
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    await AuditLog.create({</span>
+    await AuditLog.create({
       user:    req.user._id,
       action:  'CREATE_USER',
       details: `Admin created ${role} account: ${email}`
     })
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    res.status(201).json({</span>
+    res.status(201).json({
       message: `${'SK Officer'} account created.`,
       user,
-      defaultPassword: password || 'SKManage2025'
+      defaultPassword: password || <span class="branch-1 cbranch-no" title="branch not covered" >'SKManage2025'</span>
     })
   } catch (error) {
 <span class="cstat-no" title="statement not covered" >    res.status(500).json({ message: error.message })</span>
@@ -573,7 +573,7 @@ const updateRole = async (req, res) =&gt; {
     await AuditLog.create({ user: req.user._id, action: 'UPDATE_ROLE', details: `Changed ${user.email} role to ${role}` })
     res.json({ message: 'Role updated.', user })
   } catch (error) {
-<span class="cstat-no" title="statement not covered" >    res.status(500).json({ message: error.message })</span>
+    res.status(500).json({ message: error.message })
   }
 }
 &nbsp;
@@ -643,7 +643,7 @@ module.exports = {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-13T10:13:55.906Z
+                at 2026-04-14T00:34:11.899Z
             </div>
         <script src="../prettify.js"></script>
         <script>

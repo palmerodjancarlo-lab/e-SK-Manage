@@ -199,7 +199,8 @@ const deleteAccount = async (req, res) => {
     const { password } = req.body
     if (!password) return res.status(400).json({ message: 'Password is required to delete account.' })
 
-    const user = await User.findById(req.user._id)
+    // Need +password to run matchPassword (select:false on schema)
+    const user = await User.findById(req.user._id).select('+password')
     if (!user) return res.status(404).json({ message: 'User not found.' })
 
     const isMatch = await user.matchPassword(password)
