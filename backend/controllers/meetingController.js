@@ -1,3 +1,9 @@
+// meetingController.js
+// - QR token auto-generated when meeting is created
+// - SK officer activates it when event starts
+// - Auto-announcement on create
+// - Comments / open forum after event
+
 const Meeting      = require('../models/Meeting')
 const Announcement = require('../models/Announcement')
 const Points       = require('../models/Points')
@@ -20,7 +26,7 @@ const getMeetings = async (req, res) => {
       .sort({ date: 1 })
 
     // Strip qrToken from kabataan users — they must scan physically
-    const isKabataan = req.user.role === 'kabataan_user'
+    const isKabataan = req.user.role === 'kabataan'
     const sanitized  = meetings.map(m => {
       const obj = m.toObject()
       if (isKabataan) delete obj.qrToken
@@ -45,7 +51,7 @@ const getMeeting = async (req, res) => {
 
     // Strip qrToken for kabataan users
     const obj = meeting.toObject()
-    if (req.user.role === 'kabataan_user') delete obj.qrToken
+    if (req.user.role === 'kabataan') delete obj.qrToken
     res.json({ meeting: obj })
   } catch (error) {
     res.status(500).json({ message: error.message })
@@ -56,7 +62,10 @@ const getMeeting = async (req, res) => {
 // Auto-generates QR token (inactive until SK activates) + auto-creates announcement
 const createMeeting = async (req, res) => {
   try {
-    const pts     = TYPE_POINTS[req.body.type] || req.body.pointsReward || 10
+    // SK decides the points. Use their value first; fall back to type default only if not given.
+    const pts     = (req.body.pointsReward !== undefined && req.body.pointsReward !== '' && req.body.pointsReward !== null)
+                    ? Number(req.body.pointsReward)
+                    : (TYPE_POINTS[req.body.type] || 10)
     const qrToken = crypto.randomBytes(32).toString('hex')
 
     const meeting = await Meeting.create({
@@ -226,14 +235,14 @@ const checkIn = async (req, res) => {
 
     const already = meeting.checkedIn.find(c => c.user.toString() === req.user._id.toString())
     if (already) {
-      const pts = TYPE_POINTS[meeting.type] || meeting.pointsReward || 10
+      const pts = meeting.pointsReward || TYPE_POINTS[meeting.type] || 10
       return res.status(400).json({
         message: 'You already checked in to this event.',
         alreadyCheckedIn: true, pointsAwarded: pts,
       })
     }
 
-    const pointsToAward = TYPE_POINTS[meeting.type] || meeting.pointsReward || 10
+    const pointsToAward = meeting.pointsReward || TYPE_POINTS[meeting.type] || 10
     meeting.checkedIn.push({ user: req.user._id, checkedInAt: new Date() })
     await meeting.save()
 
@@ -310,7 +319,7 @@ const deleteComment = async (req, res) => {
     if (!comment) return res.status(404).json({ message: 'Comment not found' })
 
     const isOwner  = comment.user.toString() === req.user._id.toString()
-    const canAdmin = ['admin', 'sk_officer'].includes(req.user.role)
+    const canAdmin = ['admin','sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad'].includes(req.user.role)
     if (!isOwner && !canAdmin) return res.status(403).json({ message: 'Cannot delete this comment.' })
 
     comment.deleteOne()

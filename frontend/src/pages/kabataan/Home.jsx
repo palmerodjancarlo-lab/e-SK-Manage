@@ -1,199 +1,188 @@
-// Kabataan Home — welcome screen, clean and minimal
+// kabataan/Home.jsx — youth dashboard, mobile-first & interactive
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { Icon } from '../../components/Icon'
 import axios from 'axios'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+
+const C = {
+  bg:'#F4F6FB', card:'#fff', ink:'#0F1F5C', slate:'#64748B', faint:'#94A3B8',
+  line:'#EAEDF3', indigo:'#4F46E5', violet:'#7C3AED',
+  emerald:'#059669', amber:'#D97706', rose:'#E11D48', sky:'#0284C7',
+}
+
+const CAT = {
+  general:{ c:C.indigo, e:'📢' }, event:{ c:C.sky, e:'🎉' },
+  urgent:{ c:C.rose, e:'🚨' }, reminder:{ c:C.amber, e:'⏰' },
+}
 
 export default function KabataanHome() {
-  const { user }                  = useAuth()
-  const [data, setData]           = useState({ announcements:[], meetings:[], balance:0, rank:0 })
-  const [loading, setLoading]     = useState(true)
+  const { user } = useAuth()
+  const nav = useNavigate()
+  const [points,setPoints]=useState(0)
+  const [rank,setRank]=useState(null)
+  const [totalKab,setTotalKab]=useState(0)
+  const [announcements,setAnnouncements]=useState([])
+  const [meetings,setMeetings]=useState([])
+  const [rewards,setRewards]=useState([])
+  const [loading,setLoading]=useState(true)
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        const [ann, meet, pts, lb] = await Promise.all([
-          axios.get(`${API}/announcements`),
-          axios.get(`${API}/meetings`),
-          axios.get(`${API}/points/my`),
-          axios.get(`${API}/points/leaderboard`),
-        ])
-        const rank = lb.data.leaderboard.findIndex(u => u._id === user?._id) + 1
-        setData({
-          announcements: ann.data.announcements.slice(0, 3),
-          meetings:      meet.data.meetings.filter(m => new Date(m.date) >= new Date()).slice(0, 3),
-          balance:       pts.data.balance,
-          rank,
-        })
-      } catch (err) { console.error(err) }
-      finally { setLoading(false) }
-    }
-    fetchAll()
-  }, [user])
+  useEffect(()=>{
+    Promise.all([
+      axios.get(`${API}/points/my`).catch(()=>({data:{}})),
+      axios.get(`${API}/announcements`).catch(()=>({data:{}})),
+      axios.get(`${API}/meetings`).catch(()=>({data:{}})),
+      axios.get(`${API}/points/leaderboard`).catch(()=>({data:{}})),
+      axios.get(`${API}/rewards`).catch(()=>({data:{}})),
+    ]).then(([p,a,m,l,r])=>{
+      setPoints(p.data.balance ?? p.data.points ?? 0)
+      setAnnouncements((a.data.announcements||[]).slice(0,3))
+      setMeetings((m.data.meetings||[]).filter(x=>new Date(x.date)>=new Date()).sort((x,y)=>new Date(x.date)-new Date(y.date)).slice(0,2))
+      const board=l.data.leaderboard||[]; setTotalKab(board.length)
+      const idx=board.findIndex(b=>b._id===user?._id); if(idx>=0)setRank(idx+1)
+      setRewards((r.data.rewards||[]).sort((x,y)=>x.pointsRequired-y.pointsRequired))
+    }).finally(()=>setLoading(false))
+  },[user])
 
-  const hour = new Date().getHours()
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const hour=new Date().getHours()
+  const greeting=hour<12?'Good morning':hour<18?'Good afternoon':'Good evening'
 
-  // Kapag pending ang SK application nila
-  const hasPendingApp = user?.skApplication?.isApplying && user?.skApplication?.status === 'pending'
+  // next reward to aim for
+  const nextReward=rewards.find(r=>r.pointsRequired>points)
+  const progressPct=nextReward?Math.min(100,Math.round((points/nextReward.pointsRequired)*100)):100
 
-  const quickLinks = [
-    { to:'/kabataan/announcements', icon:'megaphone',  label:'Announcements', color:'#0F1F5C', bg:'rgba(15,31,92,0.07)' },
-    { to:'/kabataan/meetings',      icon:'calendar',   label:'Events',        color:'#059669', bg:'rgba(5,150,105,0.07)' },
-    { to:'/kabataan/programs',      icon:'trophy',     label:'Programs',      color:'#D97706', bg:'rgba(217,119,6,0.07)' },
-    { to:'/kabataan/transparency',  icon:'banknotes',  label:'Budget',        color:'#7C3AED', bg:'rgba(124,58,237,0.07)' },
-    { to:'/kabataan/officials',     icon:'building',   label:'Officials',     color:'#0891B2', bg:'rgba(8,145,178,0.07)' },
-    { to:'/kabataan/rewards',       icon:'gift',       label:'Rewards',       color:'#E11D48', bg:'rgba(225,29,72,0.07)' },
-  ]
+  if(loading) return <Loader/>
 
   return (
-    <div style={{ paddingBottom: 80 }}>
+    <div style={{ fontFamily:"'Plus Jakarta Sans','Inter',sans-serif", color:C.ink }}>
 
-      {/* Top banner */}
-      <div style={{ background:'#0F1F5C', padding:'24px 20px 20px', position:'relative', overflow:'hidden' }}>
-        <div style={{ position:'absolute', top:-40, right:-40, width:180, height:180, borderRadius:'50%', border:'1px solid rgba(255,255,255,0.06)' }} />
-        <div style={{ position:'absolute', bottom:-20, left:60, width:120, height:120, borderRadius:'50%', background:'rgba(245,196,0,0.06)' }} />
-        <div style={{ position:'relative', zIndex:1 }}>
-          <p style={{ color:'rgba(255,255,255,0.5)', fontSize:12, marginBottom:3 }}>{greeting},</p>
-          <h1 style={{ color:'white', fontSize:22, fontWeight:800, marginBottom:3, letterSpacing:'-0.3px' }}>
-            {user?.firstName} {user?.lastName}
-          </h1>
-          <p style={{ color:'rgba(255,255,255,0.45)', fontSize:12 }}>
-            Brgy. {user?.barangay || '—'} · {user?.municipality}
-          </p>
-
-          {/* Points balance */}
-          <div style={{ display:'flex', gap:12, marginTop:18 }}>
-            <div style={{ background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:10, padding:'10px 16px' }}>
-              <p style={{ color:'rgba(255,255,255,0.5)', fontSize:10, fontWeight:600, marginBottom:2 }}>My Points</p>
-              <p style={{ color:'#F5C400', fontSize:20, fontWeight:800, lineHeight:1 }}>
-                {loading ? '—' : data.balance.toLocaleString()}
-              </p>
-            </div>
-            {data.rank > 0 && (
-              <div style={{ background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:10, padding:'10px 16px' }}>
-                <p style={{ color:'rgba(255,255,255,0.5)', fontSize:10, fontWeight:600, marginBottom:2 }}>My Rank</p>
-                <p style={{ color:'white', fontSize:20, fontWeight:800, lineHeight:1 }}>#{data.rank}</p>
-              </div>
-            )}
-          </div>
+      {/* ── Hero ── */}
+      <div style={{ background:'linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%)', padding:'26px 20px 60px', color:'#fff', position:'relative', overflow:'hidden' }}>
+        <div style={{ position:'absolute', right:-30, top:-30, width:160, height:160, borderRadius:'50%', background:'rgba(255,255,255,0.08)' }}/>
+        <div style={{ position:'absolute', right:50, bottom:-40, width:120, height:120, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }}/>
+        <div style={{ position:'relative' }}>
+          <p style={{ fontSize:13, opacity:0.85, margin:0 }}>{greeting},</p>
+          <h1 style={{ fontSize:24, fontWeight:800, margin:'2px 0 0' }}>{user?.firstName}! 👋</h1>
+          <p style={{ fontSize:12.5, opacity:0.8, margin:'6px 0 0' }}>Sangguniang Kabataan · Barangay Tawiran</p>
         </div>
       </div>
 
-      <div style={{ padding:'18px 16px' }}>
-
-        {/* Pending SK application notice */}
-        {hasPendingApp && (
-          <div style={{ background:'rgba(217,119,6,0.08)', border:'1px solid rgba(217,119,6,0.2)', borderRadius:12, padding:'14px 16px', marginBottom:18, display:'flex', gap:12, alignItems:'flex-start' }}>
-            <Icon name="identification" size={18} color="var(--amber-600)" />
+      {/* ── Floating points card ── */}
+      <div style={{ padding:'0 16px', marginTop:-44, position:'relative' }}>
+        <div style={{ background:C.card, borderRadius:20, padding:20, boxShadow:'0 12px 32px rgba(15,31,92,0.12)', border:`1px solid ${C.line}` }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div>
-              <p style={{ fontWeight:700, fontSize:13, color:'var(--amber-600)', marginBottom:3 }}>SK Application Under Review</p>
-              <p style={{ fontSize:12, color:'var(--text-muted)', lineHeight:1.5 }}>
-                Your application for <strong>{user.skApplication.appliedPosition}</strong> is being reviewed by the Admin. You'll be notified once it's approved.
-              </p>
+              <p style={{ fontSize:12, color:C.slate, margin:0, fontWeight:600 }}>Your Points</p>
+              <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:2 }}>
+                <span style={{ fontSize:36, fontWeight:800, color:C.indigo, lineHeight:1 }}>{points}</span>
+                <span style={{ fontSize:14, color:C.faint, fontWeight:700 }}>pts</span>
+              </div>
+            </div>
+            <div style={{ textAlign:'center', background:'#F4F6FB', borderRadius:16, padding:'12px 18px' }}>
+              <div style={{ fontSize:22 }}>{rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':'🏅'}</div>
+              <p style={{ fontSize:11, color:C.slate, margin:'2px 0 0', fontWeight:700 }}>{rank?`Rank #${rank}`:'Unranked'}</p>
+              {totalKab>0 && <p style={{ fontSize:10, color:C.faint, margin:0 }}>of {totalKab}</p>}
             </div>
           </div>
-        )}
 
-        {/* Quick access */}
-        <h3 style={{ fontSize:13, fontWeight:700, color:'var(--text-muted)', marginBottom:12, letterSpacing:'0.3px' }}>QUICK ACCESS</h3>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:24 }}>
-          {quickLinks.map(item => (
-            <Link key={item.to} to={item.to} style={{
-              display:'flex', flexDirection:'column', alignItems:'center', gap:8,
-              padding:'16px 8px',
-              background:item.bg, borderRadius:14,
-              border:`1px solid ${item.color}18`,
-              textDecoration:'none', transition:'all var(--transition)',
-            }}
-            onMouseEnter={e => e.currentTarget.style.transform='translateY(-2px)'}
-            onMouseLeave={e => e.currentTarget.style.transform='none'}>
-              <Icon name={item.icon} size={22} color={item.color} />
-              <span style={{ fontSize:11, fontWeight:700, color:item.color, textAlign:'center' }}>{item.label}</span>
-            </Link>
+          {/* progress to next reward */}
+          {nextReward && (
+            <div style={{ marginTop:16, paddingTop:16, borderTop:`1px solid ${C.line}` }}>
+              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
+                <span style={{ fontSize:12, color:C.slate, fontWeight:600 }}>Next: {nextReward.title}</span>
+                <span style={{ fontSize:12, color:C.indigo, fontWeight:800 }}>{points}/{nextReward.pointsRequired}</span>
+              </div>
+              <div style={{ height:8, background:'#EEF0F7', borderRadius:999, overflow:'hidden' }}>
+                <div style={{ height:'100%', width:`${progressPct}%`, background:'linear-gradient(90deg,#4F46E5,#7C3AED)', borderRadius:999, transition:'width 0.6s' }}/>
+              </div>
+              <p style={{ fontSize:11, color:C.faint, margin:'6px 0 0' }}>{nextReward.pointsRequired-points} more points to unlock 🎁</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Quick actions ── */}
+      <div style={{ padding:'20px 16px 0' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10 }}>
+          {[
+            { icon:'📷', label:'Scan', to:'/kabataan/checkin', bg:'#EEF0FF', c:C.indigo },
+            { icon:'🎁', label:'Rewards', to:'/kabataan/rewards', bg:'#F5F3FF', c:C.violet },
+            { icon:'🏆', label:'Programs', to:'/kabataan/programs', bg:'#FFFBEB', c:C.amber },
+            { icon:'💰', label:'Budget', to:'/kabataan/transparency', bg:'#ECFDF5', c:C.emerald },
+          ].map(a=>(
+            <button key={a.label} onClick={()=>nav(a.to)} style={{ background:a.bg, border:'none', borderRadius:16, padding:'14px 6px', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:6, transition:'transform 0.12s' }}
+              onMouseDown={e=>e.currentTarget.style.transform='scale(0.94)'} onMouseUp={e=>e.currentTarget.style.transform='scale(1)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}>
+              <span style={{ fontSize:22 }}>{a.icon}</span>
+              <span style={{ fontSize:11, fontWeight:700, color:a.c }}>{a.label}</span>
+            </button>
           ))}
         </div>
+      </div>
 
-        {/* QR Check-in banner */}
-        <Link to="/kabataan/checkin" style={{
-          display:'block', textDecoration:'none',
-          background:'#0F1F5C', borderRadius:14,
-          padding:'16px 18px', marginBottom:20,
-          position:'relative', overflow:'hidden',
-        }}>
-          <div style={{ position:'absolute', top:-20, right:-20, width:100, height:100, borderRadius:'50%', background:'rgba(245,196,0,0.08)' }} />
-          <div style={{ display:'flex', alignItems:'center', gap:14, position:'relative', zIndex:1 }}>
-            <div style={{ width:44, height:44, borderRadius:12, background:'rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              <Icon name="qrCode" size={22} color="white" />
-            </div>
-            <div style={{ flex:1 }}>
-              <p style={{ color:'white', fontWeight:700, fontSize:14, marginBottom:2 }}>Scan QR to Earn Points</p>
-              <p style={{ color:'rgba(255,255,255,0.5)', fontSize:12 }}>Attend SK events and check in with the QR code</p>
-            </div>
-            <Icon name="arrowRight" size={16} color="rgba(255,255,255,0.4)" />
-          </div>
-        </Link>
-
-        {/* Latest announcements */}
-        {data.announcements.length > 0 && (
-          <>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-              <h3 style={{ fontSize:13, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.3px' }}>LATEST NEWS</h3>
-              <Link to="/kabataan/announcements" style={{ fontSize:12, fontWeight:600, color:'#0F1F5C', textDecoration:'none' }}>View all</Link>
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:20 }}>
-              {data.announcements.map(ann => (
-                <Link key={ann._id} to="/kabataan/announcements" style={{ textDecoration:'none' }}>
-                  <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:'12px 14px', display:'flex', gap:12, alignItems:'center', transition:'all var(--transition)' }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor='#0F1F5C'}
-                    onMouseLeave={e => e.currentTarget.style.borderColor='var(--border)'}>
-                    <div style={{ width:36, height:36, borderRadius:9, background:'rgba(15,31,92,0.07)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                      <Icon name="megaphone" size={16} color="#0F1F5C" />
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <p style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', color:'var(--text-base)' }}>{ann.title}</p>
-                      <p style={{ fontSize:11, color:'var(--text-faint)', marginTop:2 }}>{new Date(ann.createdAt).toLocaleDateString('en-PH')}</p>
-                    </div>
-                    <Icon name="arrowRight" size={14} color="var(--text-faint)" />
+      {/* ── Upcoming events ── */}
+      {meetings.length>0 && (
+        <Section title="Upcoming Events" action={{label:'See all',to:'/kabataan/meetings',nav}}>
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {meetings.map(m=>{
+              const d=new Date(m.date)
+              return (
+                <div key={m._id} onClick={()=>nav('/kabataan/meetings')} style={{ background:C.card, border:`1px solid ${C.line}`, borderRadius:16, padding:14, display:'flex', alignItems:'center', gap:14, cursor:'pointer' }}>
+                  <div style={{ width:52, height:52, borderRadius:14, background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <span style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', opacity:0.9 }}>{d.toLocaleDateString('en-PH',{month:'short'})}</span>
+                    <span style={{ fontSize:20, fontWeight:800, lineHeight:1 }}>{d.getDate()}</span>
                   </div>
-                </Link>
-              ))}
-            </div>
-          </>
-        )}
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <p style={{ fontSize:14, fontWeight:700, margin:0 }}>{m.title}</p>
+                    <p style={{ fontSize:12, color:C.slate, margin:'3px 0 0' }}>🕐 {d.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'})}{m.venue&&` · 📍 ${m.venue}`}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
 
-        {/* Upcoming events */}
-        {data.meetings.length > 0 && (
-          <>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-              <h3 style={{ fontSize:13, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.3px' }}>UPCOMING EVENTS</h3>
-              <Link to="/kabataan/meetings" style={{ fontSize:12, fontWeight:600, color:'#0F1F5C', textDecoration:'none' }}>View all</Link>
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {data.meetings.map(m => {
-                const d = new Date(m.date)
+      {/* ── Latest news ── */}
+      <Section title="Latest News" action={{label:'See all',to:'/kabataan/announcements',nav}}>
+        {announcements.length===0
+          ? <Empty emoji="📭" text="No announcements yet"/>
+          : <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              {announcements.map(a=>{
+                const cat=CAT[a.category]||CAT.general
                 return (
-                  <Link key={m._id} to="/kabataan/meetings" style={{ textDecoration:'none' }}>
-                    <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:'12px 14px', display:'flex', gap:12, alignItems:'center' }}>
-                      <div style={{ background:'#0F1F5C', color:'white', borderRadius:10, padding:'8px 10px', textAlign:'center', minWidth:46, flexShrink:0 }}>
-                        <p style={{ fontSize:10, fontWeight:700, opacity:0.7 }}>{d.toLocaleString('default',{month:'short'})}</p>
-                        <p style={{ fontSize:18, fontWeight:800, lineHeight:1 }}>{d.getDate()}</p>
-                      </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <p style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.title}</p>
-                        <p style={{ fontSize:11, color:'var(--text-faint)', marginTop:2 }}>{m.time} · {m.venue}</p>
-                      </div>
+                  <div key={a._id} onClick={()=>nav('/kabataan/announcements')} style={{ background:C.card, border:`1px solid ${C.line}`, borderRadius:16, padding:16, borderLeft:`4px solid ${cat.c}`, cursor:'pointer' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                      <span style={{ fontSize:15 }}>{cat.e}</span>
+                      <span style={{ fontSize:11, color:C.faint, fontWeight:600 }}>{new Date(a.createdAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'})}</span>
                     </div>
-                  </Link>
+                    <p style={{ fontSize:14, fontWeight:700, margin:'0 0 4px' }}>{a.title}</p>
+                    <p style={{ fontSize:12.5, color:C.slate, margin:0, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{a.content}</p>
+                  </div>
                 )
               })}
-            </div>
-          </>
-        )}
-      </div>
+            </div>}
+      </Section>
+
+      <div style={{ height:24 }}/>
     </div>
   )
+}
+
+function Section({ title, action, children }) {
+  return (
+    <div style={{ padding:'22px 16px 0' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+        <h2 style={{ fontSize:16, fontWeight:800, margin:0 }}>{title}</h2>
+        {action && <button onClick={()=>action.nav(action.to)} style={{ background:'none', border:'none', fontSize:12.5, fontWeight:700, color:'#4F46E5', cursor:'pointer' }}>{action.label} →</button>}
+      </div>
+      {children}
+    </div>
+  )
+}
+function Empty({ emoji, text }) {
+  return <div style={{ textAlign:'center', padding:'30px 0', background:'#fff', border:'1px dashed #EAEDF3', borderRadius:16 }}><div style={{ fontSize:30, marginBottom:6 }}>{emoji}</div><p style={{ fontSize:13, color:'#94A3B8', margin:0 }}>{text}</p></div>
+}
+function Loader() {
+  return <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'70vh' }}><div style={{ width:32, height:32, border:'3px solid #EAEDF3', borderTopColor:'#4F46E5', borderRadius:'50%', animation:'sp .7s linear infinite' }}/><style>{`@keyframes sp{to{transform:rotate(360deg)}}`}</style></div>
 }

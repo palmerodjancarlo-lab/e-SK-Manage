@@ -44,7 +44,7 @@ const getHistory = async (req, res) => {
 const getLeaderboard = async (req, res) => {
   try {
     const leaderboard = await User
-      .find({ role: 'kabataan_user', isActive: true })
+      .find({ role: 'kabataan', isActive: true })
       .select('firstName lastName points municipality barangay')
       .sort({ points: -1 })
       .limit(20)
@@ -74,4 +74,36 @@ const awardPoints = async (req, res) => {
   }
 }
 
-module.exports = { getMyPoints, getHistory, getLeaderboard, awardPoints }
+
+// POST /api/points/bulk-award
+// Award the same points to multiple kabataan at once (attendance-based)
+// Body: { userIds: [...], points, reason }
+const bulkAward = async (req, res) => {
+  try {
+    const { userIds, points, reason } = req.body
+    if (!Array.isArray(userIds) || userIds.length === 0) return res.status(400).json({ message:'Select at least one kabataan.' })
+    if (!points || points <= 0) return res.status(400).json({ message:'Points must be greater than 0.' })
+    if (!reason) return res.status(400).json({ message:'A reason is required.' })
+
+    const User     = require('../models/User')
+    const Points   = require('../models/Points')
+    const AuditLog = require('../models/AuditLog')
+
+    // Only award to valid kabataan
+    const kabs = await User.find({ _id:{ $in:userIds }, role:'kabataan' })
+    let awarded = 0
+    for (const k of kabs) {
+      await User.findByIdAndUpdate(k._id, { $inc:{ points } })
+      await Points.create({ user:k._id, pointsEarned:points, type:'awarded', reason })
+      awarded++
+    }
+
+    await AuditLog.create({
+      user:req.user._id, action:'BULK_AWARD_POINTS',
+      details:`${req.user.firstName} ${req.user.lastName} awarded ${points} pts each to ${awarded} kabataan — Reason: ${reason}`,
+    })
+    res.json({ message:`Awarded ${points} points to ${awarded} kabataan.`, count:awarded })
+  } catch (e) { res.status(500).json({ message:e.message }) }
+}
+
+module.exports = { getMyPoints, getHistory, getLeaderboard, awardPoints, bulkAward }

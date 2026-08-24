@@ -1,24 +1,24 @@
-// adminRoutes.js
-const express   = require('express')
-const router    = express.Router()
-const ctrl      = require('../controllers/adminController')
-const { protect }   = require('../middleware/authMiddleware')
-const { authorize } = require('../middleware/roleMiddleware')
+// routes/adminRoutes.js
+const express  = require('express')
+const router   = express.Router()
+const { protect } = require('../middleware/authMiddleware')
+const authorize   = require('../middleware/authorize')
+const {
+  getUsers, getUser, createSKAccount, updateUser,
+  toggleActive, resetPassword, deleteUser,
+  getStats, getAuditLogs,
+} = require('../controllers/adminController')
 
-// Any logged-in user can view directory
-router.get('/users', protect, ctrl.getUsers)
+const ADMIN = ['admin']
 
-// SK Application review — admin only
-router.get('/sk-applications',              protect, authorize('admin'), ctrl.getSKApplications)
-router.put('/sk-applications/:id/approve',  protect, authorize('admin'), ctrl.approveSKApplication)
-router.put('/sk-applications/:id/reject',   protect, authorize('admin'), ctrl.rejectSKApplication)
-
-// User management — admin only
-router.post('/create-user',     protect, authorize('admin'), ctrl.createUser)
-router.put('/users/:id/role',   protect, authorize('admin'), ctrl.updateRole)
-router.put('/users/:id/toggle', protect, authorize('admin'), ctrl.toggleActive)
-router.delete('/users/:id',     protect, authorize('admin'), ctrl.deleteUser)
-router.get('/logs',             protect, authorize('admin'), ctrl.getAuditLogs)
-router.get('/stats',            protect, authorize('admin'), ctrl.getStats)
+router.get('/users',              protect, authorize(...ADMIN), getUsers)
+router.get('/users/:id',          protect, authorize(...ADMIN), getUser)
+router.post('/create-sk',         protect, authorize(...ADMIN), createSKAccount)
+router.put('/users/:id',          protect, authorize(...ADMIN), updateUser)
+router.put('/users/:id/toggle',   protect, authorize(...ADMIN), toggleActive)
+router.put('/users/:id/reset-password', protect, authorize(...ADMIN), resetPassword)
+router.delete('/users/:id',       protect, authorize(...ADMIN), deleteUser)
+router.get('/stats',              protect, authorize(...ADMIN), getStats)
+router.get('/logs',               protect, authorize(...ADMIN), getAuditLogs)
 
 module.exports = router

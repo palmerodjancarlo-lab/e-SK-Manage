@@ -43,11 +43,11 @@ export default function SKOfficials() {
   const [muni,      setMuni]      = useState('All')
 
   useEffect(() => {
-    axios.get(`${API}/admin/users`)
-      .then(r => setOfficials(r.data.users.filter(u => u.role === 'sk_officer')))
+    axios.get(`${API}/auth/members`)
+      .then(r => setOfficials(r.data.users.filter(u => ['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad'].includes(u.role))))
       .catch(() => toast.error('Failed to load officials.'))
       .finally(() => setLoading(false))
-  }, [])
+  }, []) // eslint-disable-line
 
   const filtered = officials
     .filter(o => {

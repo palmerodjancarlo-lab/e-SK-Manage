@@ -1,195 +1,132 @@
-// AdminLayout.jsx
-// Layout ng Admin Portal — dark sidebar, always visible sa desktop
-// Mobile: hamburger menu lang ang makikita
+// layouts/AdminLayout.jsx — e-SK Manage Admin Portal
+// Professional government dashboard with fixed sidebar
 
 import { useState } from 'react'
-import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
-import { useTheme } from '../../context/ThemeContext'
-import { Icon } from '../../components/Icon'
-import skLogo from '../../assets/sk-logo.svg'
-import toast from 'react-hot-toast'
+import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 
-// Mga navigation items ng Admin
+const C = {
+  navy:'#0C2340', navyD:'#081A30', navyM:'#1A3A6B', navyL:'#E8EEF8',
+  gold:'#B8860B', goldBright:'#D4A72C',
+  border:'#1E3A5F', white:'#FFFFFF', text:'#0F172A',
+  muted:'#64748B', sidebarText:'#94A3B8', sidebarActive:'#FFFFFF',
+  bg:'#F1F5F9',
+}
+
+// Navigation structure
 const NAV = [
   {
     section: 'Overview',
     items: [
-      { to: '/admin/dashboard', icon: 'home',         label: 'Dashboard' },
-      { to: '/admin/analytics', icon: 'chartBar',     label: 'Analytics' },
+      { to:'/admin/dashboard', label:'Dashboard',  icon:'▨' },
     ]
   },
   {
-    section: 'Management',
+    section: 'User Management',
     items: [
-      { to: '/admin/users',          icon: 'users',          label: 'User Accounts' },
-      { to: '/admin/sk-officers',    icon: 'identification', label: 'SK Officials' },
-      { to: '/admin/create-account',   icon: 'plus',           label: 'Create Account' },
-      { to: '/admin/sk-applications',  icon: 'identification', label: 'SK Applications' },
+      { to:'/admin/users',      label:'All Users',        icon:'◈' },
+      { to:'/admin/create-sk',  label:'Create SK Account', icon:'✛' },
     ]
   },
   {
-    section: 'Content',
+    section: 'Operations',
     items: [
-      { to: '/admin/announcements', icon: 'megaphone',   label: 'Announcements' },
-      { to: '/admin/meetings',      icon: 'calendar',    label: 'Meetings & Events' },
-      { to: '/admin/programs',      icon: 'trophy',      label: 'Programs' },
-      { to: '/admin/transparency',  icon: 'banknotes',   label: 'Transparency' },
+      { to:'/admin/programs',   label:'Programs & Projects', icon:'◱' },
+      { to:'/admin/finance',    label:'Financial Records',   icon:'₱' },
     ]
   },
   {
     section: 'System',
     items: [
-      { to: '/admin/audit-logs', icon: 'clipboardList', label: 'Audit Logs' },
-      { to: '/admin/settings',   icon: 'cog',           label: 'Settings' },
+      { to:'/admin/logs',       label:'Audit Trail',  icon:'≡' },
+      { to:'/admin/settings',   label:'Settings',     icon:'⚙' },
     ]
   },
 ]
 
-// Reusable sidebar content — ginagamit sa desktop at mobile
-function SidebarContent({ onClose }) {
-  const { user, logout } = useAuth()
-  const navigate         = useNavigate()
-  const location         = useLocation()
+function Sidebar({ onNavigate }) {
+  const nav = useNavigate()
+  const user = JSON.parse(localStorage.getItem('user') || '{}')
 
-  const handleLogout = () => {
-    logout()
-    toast.success('Naka-logout na.')
-    navigate('/login')
+  const logout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    nav('/login')
   }
 
   return (
     <div style={{
-      width: 240,
-      height: '100%',
-      background: 'linear-gradient(180deg, #080D1C 0%, #0D1528 100%)',
-      display: 'flex',
-      flexDirection: 'column',
-      flexShrink: 0,
+      width:250, background:C.navy, height:'100vh',
+      display:'flex', flexDirection:'column', position:'fixed', left:0, top:0,
+      borderRight:`1px solid ${C.border}`,
     }}>
 
-      {/* Logo area */}
-      <div style={{
-        padding: '16px',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        flexShrink: 0,
-      }}>
-        <div style={{
-          width: 34, height: 34,
-          background: 'rgba(255,255,255,0.1)',
-          border: '1px solid rgba(255,255,255,0.15)',
-          borderRadius: 9,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexShrink: 0,
-        }}>
-          <img src={skLogo} alt="SK" style={{ width: 24, objectFit: 'contain' }} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'white', lineHeight: 1.2 }}>e-SK Manage</div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 500, marginTop: 1 }}>Admin Console</div>
-        </div>
-        {onClose && (
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', padding: 4, display: 'flex' }}>
-            <Icon name="x" size={16} />
-          </button>
-        )}
-      </div>
-
-      {/* Admin badge */}
-      <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 7,
-          padding: '6px 10px', borderRadius: 7,
-          background: 'rgba(192,17,31,0.18)',
-          border: '1px solid rgba(192,17,31,0.3)',
-        }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#FF5555', flexShrink: 0 }} />
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#FF8888', letterSpacing: '0.8px' }}>
-            ADMINISTRATOR
-          </span>
+      {/* Brand */}
+      <div style={{ padding:'20px 22px', borderBottom:`1px solid ${C.border}` }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{
+            width:38, height:38, borderRadius:8,
+            background:`linear-gradient(135deg, ${C.gold}, ${C.goldBright})`,
+            display:'flex', alignItems:'center', justifyContent:'center',
+            fontSize:18, fontWeight:800, color:C.navy,
+          }}>e</div>
+          <div>
+            <div style={{ fontSize:15, fontWeight:800, color:C.white, letterSpacing:'-0.3px' }}>e-SK Manage</div>
+            <div style={{ fontSize:9, color:C.gold, fontWeight:600, letterSpacing:'1px', textTransform:'uppercase' }}>Admin Console</div>
+          </div>
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 8px' }}>
-        {NAV.map(section => (
-          <div key={section.section} style={{ marginBottom: 2 }}>
-            <div style={{
-              fontSize: 9, fontWeight: 700,
-              color: 'rgba(255,255,255,0.2)',
-              letterSpacing: '1px',
-              textTransform: 'uppercase',
-              padding: '10px 10px 4px',
-            }}>
-              {section.section}
+      {/* Nav */}
+      <div style={{ flex:1, overflowY:'auto', padding:'16px 12px' }}>
+        {NAV.map(group => (
+          <div key={group.section} style={{ marginBottom:20 }}>
+            <div style={{ fontSize:9, fontWeight:700, color:C.sidebarText, textTransform:'uppercase', letterSpacing:'1.2px', padding:'0 10px', marginBottom:8, opacity:0.6 }}>
+              {group.section}
             </div>
-            {section.items.map(item => {
-              const active = location.pathname === item.to
-              return (
-                <NavLink key={item.to} to={item.to} onClick={onClose}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 9,
-                    padding: '8px 10px',
-                    borderRadius: 8, marginBottom: 1,
-                    fontSize: 13, fontWeight: active ? 600 : 500,
-                    textDecoration: 'none',
-                    background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    color: active ? 'white' : 'rgba(255,255,255,0.45)',
-                    borderLeft: active ? '2px solid #F5C400' : '2px solid transparent',
-                    transition: 'all 140ms ease',
-                  }}
-                  onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)' } }}
-                  onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.45)' } }}
-                >
-                  <Icon name={item.icon} size={15} color={active ? '#F5C400' : 'rgba(255,255,255,0.3)'} />
-                  <span>{item.label}</span>
-                  {active && <div style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#F5C400' }} />}
-                </NavLink>
-              )
-            })}
+            {group.items.map(item => (
+              <NavLink key={item.to} to={item.to} onClick={onNavigate}
+                style={({ isActive }) => ({
+                  display:'flex', alignItems:'center', gap:12,
+                  padding:'9px 12px', borderRadius:7, marginBottom:2,
+                  textDecoration:'none', fontSize:13, fontWeight:600,
+                  color: isActive ? C.sidebarActive : C.sidebarText,
+                  background: isActive ? C.navyM : 'transparent',
+                  borderLeft: isActive ? `3px solid ${C.gold}` : '3px solid transparent',
+                  transition:'all 0.12s',
+                })}>
+                <span style={{ fontSize:15, width:18, textAlign:'center' }}>{item.icon}</span>
+                {item.label}
+              </NavLink>
+            ))}
           </div>
         ))}
-      </nav>
+      </div>
 
-      {/* User + logout */}
-      <div style={{ padding: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 9,
-          padding: '9px 10px', borderRadius: 8,
-          background: 'rgba(255,255,255,0.05)',
-          marginBottom: 4,
-        }}>
+      {/* User + Logout */}
+      <div style={{ padding:'14px 16px', borderTop:`1px solid ${C.border}` }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
           <div style={{
-            width: 28, height: 28, borderRadius: 7, flexShrink: 0,
-            background: 'linear-gradient(135deg, #C0111F, #E63946)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white', fontWeight: 700, fontSize: 11,
+            width:34, height:34, borderRadius:'50%', background:C.navyM,
+            display:'flex', alignItems:'center', justifyContent:'center',
+            fontSize:13, fontWeight:700, color:C.white,
           }}>
-            {user?.firstName?.[0]}{user?.lastName?.[0]}
+            {user.firstName?.[0]}{user.lastName?.[0]}
           </div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.firstName} {user?.lastName}
+          <div style={{ minWidth:0, flex:1 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:C.white, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+              {user.firstName} {user.lastName}
             </div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.email}
-            </div>
+            <div style={{ fontSize:10, color:C.gold }}>Administrator</div>
           </div>
         </div>
-        <button onClick={handleLogout} style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          width: '100%', padding: '8px 10px', borderRadius: 8,
-          border: 'none', background: 'transparent',
-          color: 'rgba(255,100,100,0.6)', fontSize: 13, fontWeight: 500,
-          cursor: 'pointer', transition: 'all 140ms ease',
+        <button onClick={logout} style={{
+          width:'100%', padding:'8px', background:'transparent',
+          border:`1px solid ${C.border}`, borderRadius:6,
+          color:C.sidebarText, fontSize:12, fontWeight:600, cursor:'pointer',
+          transition:'all 0.12s',
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(192,17,31,0.15)'; e.currentTarget.style.color = '#FF8888' }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,100,100,0.6)' }}
-        >
-          <Icon name="logout" size={15} />
+        onMouseEnter={e => { e.currentTarget.style.background=C.navyM; e.currentTarget.style.color=C.white }}
+        onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color=C.sidebarText }}>
           Sign Out
         </button>
       </div>
@@ -198,108 +135,52 @@ function SidebarContent({ onClose }) {
 }
 
 export default function AdminLayout() {
-  const { darkMode, toggleTheme } = useTheme()
-  const { user }                  = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
+    <div style={{ background:C.bg, minHeight:'100vh', fontFamily:"'Inter','Segoe UI',system-ui,sans-serif" }}>
 
-      {/* Desktop sidebar — laging visible sa malaking screen */}
-      <div className="admin-desktop-sidebar" style={{ height: '100vh', flexShrink: 0 }}>
-        <SidebarContent />
+      {/* Desktop sidebar */}
+      <div style={{ display:'none' }} className="desktop-sidebar">
+        <Sidebar />
       </div>
 
-      {/* Mobile drawer overlay */}
+      {/* Mobile overlay */}
       {mobileOpen && (
         <>
-          <div
-            onClick={() => setMobileOpen(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 150, backdropFilter: 'blur(3px)' }}
-          />
-          <div style={{ position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 160, height: '100vh' }}>
-            <SidebarContent onClose={() => setMobileOpen(false)} />
+          <div onClick={() => setMobileOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:40 }} />
+          <div style={{ position:'fixed', left:0, top:0, zIndex:50 }}>
+            <Sidebar onNavigate={() => setMobileOpen(false)} />
           </div>
         </>
       )}
 
-      {/* Main content area */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-
-        {/* Top header bar */}
-        <header style={{
-          height: 54,
-          padding: '0 20px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: darkMode ? 'rgba(13,21,40,0.95)' : 'rgba(255,255,255,0.96)',
-          borderBottom: '1px solid var(--border)',
-          flexShrink: 0,
-          boxShadow: 'var(--shadow-xs)',
-          backdropFilter: 'blur(10px)',
+      {/* Main content */}
+      <div className="admin-main" style={{ marginLeft:0, minHeight:'100vh' }}>
+        {/* Mobile top bar */}
+        <div className="mobile-topbar" style={{
+          display:'none', alignItems:'center', gap:12, padding:'12px 16px',
+          background:C.navy, position:'sticky', top:0, zIndex:30,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button onClick={() => setMobileOpen(true)} style={{ background:'none', border:'none', color:C.white, fontSize:22, cursor:'pointer' }}>☰</button>
+          <span style={{ fontSize:15, fontWeight:800, color:C.white }}>e-SK Manage</span>
+        </div>
 
-            {/* Hamburger para sa mobile */}
-            <button className="admin-hamburger" onClick={() => setMobileOpen(true)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'none', alignItems: 'center', padding: 4, color: 'var(--text-muted)' }}>
-              <Icon name="menu" size={20} />
-            </button>
-
-            {/* Admin mode indicator */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '4px 10px', borderRadius: 6,
-              background: darkMode ? 'rgba(192,17,31,0.12)' : 'rgba(192,17,31,0.07)',
-              border: '1px solid rgba(192,17,31,0.15)',
-            }}>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--red-600)' }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--red-600)', letterSpacing: '0.5px' }}>
-                ADMIN
-              </span>
-            </div>
-          </div>
-
-          {/* Right side controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={toggleTheme} style={{
-              width: 34, height: 34,
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              background: 'var(--bg-subtle)',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              transition: 'all var(--transition)',
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = 'var(--border)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-subtle)'}
-            >
-              <Icon name={darkMode ? 'sun' : 'moon'} size={15} />
-            </button>
-
-            {/* User avatar */}
-            <div style={{
-              width: 34, height: 34, borderRadius: 9,
-              background: 'linear-gradient(135deg, var(--red-600), #E63946)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'white', fontWeight: 700, fontSize: 12,
-              cursor: 'pointer', flexShrink: 0,
-            }}
-            title={`${user?.firstName} ${user?.lastName}`}>
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </div>
-          </div>
-        </header>
-
-        {/* Page content */}
-        <main style={{
-          flex: 1, overflowY: 'auto',
-          padding: '24px',
-          background: 'var(--bg)',
-        }}>
+        <div style={{ padding:'28px 32px', maxWidth:1400, margin:'0 auto' }}>
           <Outlet />
-        </main>
+        </div>
       </div>
+
+      <style>{`
+        @media (min-width: 1024px) {
+          .desktop-sidebar { display: block !important; }
+          .admin-main { margin-left: 250px !important; }
+          .mobile-topbar { display: none !important; }
+        }
+        @media (max-width: 1023px) {
+          .mobile-topbar { display: flex !important; }
+        }
+      `}</style>
     </div>
   )
 }

@@ -1,23 +1,22 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+// context/ThemeContext.jsx
+// Defaults to LIGHT mode. Remembers the user's choice.
+import { createContext, useContext, useState, useEffect } from 'react'
 
 const ThemeContext = createContext()
 
 export const ThemeProvider = ({ children }) => {
+  // Default to light. Only use dark if the user explicitly chose it before.
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('eskmanage-theme')
-    if (saved) return saved === 'dark'
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
+    return saved === 'dark'   // anything other than 'dark' = light
   })
 
   useEffect(() => {
-    document.documentElement.setAttribute(
-      'data-theme',
-      darkMode ? 'dark' : 'light'
-    )
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light')
     localStorage.setItem('eskmanage-theme', darkMode ? 'dark' : 'light')
   }, [darkMode])
 
-  const toggleTheme = () => setDarkMode(prev => !prev)
+  const toggleTheme = () => setDarkMode(d => !d)
 
   return (
     <ThemeContext.Provider value={{ darkMode, toggleTheme }}>

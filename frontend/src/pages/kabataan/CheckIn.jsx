@@ -1,269 +1,177 @@
-// Kabataan CheckIn — QR scan + manual token entry
-// Uses html5-qrcode for camera scanning
+// kabataan/CheckIn.jsx — QR scan check-in to earn points
+// Uses html5-qrcode for camera scanning + manual token fallback
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
-import { Icon } from '../../components/Icon'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+const C = {
+  bg:'#F4F6FB', card:'#fff', ink:'#0F1F5C', slate:'#64748B', faint:'#94A3B8',
+  line:'#EAEDF3', indigo:'#4F46E5', violet:'#7C3AED', emerald:'#059669', rose:'#E11D48', amber:'#D97706',
+}
 
 export default function CheckIn() {
-  const navigate                        = useNavigate()
-  const [status,      setStatus]        = useState('idle')  // idle | scanning | loading | success | already | error
-  const [result,      setResult]        = useState(null)
-  const [errorMsg,    setErrorMsg]      = useState('')
-  const scannerRef                      = useRef(null)
-  const [manualToken, setManualToken]   = useState('')
-  const scannerDivId                    = 'qr-reader-div'
+  const navigate = useNavigate()
+  const [status,setStatus]=useState('idle') // idle|scanning|loading|success|already|error
+  const [result,setResult]=useState(null)
+  const [errorMsg,setErrorMsg]=useState('')
+  const [manualToken,setManualToken]=useState('')
+  const [showManual,setShowManual]=useState(false)
+  const scannerRef=useRef(null)
+  const scannerDivId='qr-reader-div'
 
-  // NOTE: Auto check-in via URL is disabled — must scan physically
-  // useEffect(() => { if (token) doCheckIn(token) }, [token])
+  useEffect(()=>{ return ()=>{ stopScanner() } },[]) // eslint-disable-line
 
-  // Cleanup scanner on unmount
-  useEffect(() => {
-    return () => { stopScanner() }
-  }, [])
-
-  const doCheckIn = async (raw) => {
-    await stopScanner()
-    setStatus('loading')
-    setErrorMsg('')
-
-    // Extract token if a full URL was passed
-    let tok = (raw || '').trim()
-    if (tok.includes('/checkin/')) {
-      tok = tok.split('/checkin/').pop().split('?')[0].trim()
-    }
-
-    try {
-      const { data } = await axios.post(`${API}/meetings/checkin`, { qrToken: tok })
-      setResult(data)
-      setStatus('success')
-      toast.success(`+${data.pointsAwarded} points earned!`)
-    } catch (err) {
-      const res = err.response?.data
-      if (res?.alreadyCheckedIn) {
-        setResult({ pointsAwarded: res.pointsAwarded })
-        setStatus('already')
-      } else {
-        setErrorMsg(res?.message || 'Check-in failed. Invalid or expired QR code.')
-        setStatus('error')
-      }
+  const stopScanner=async()=>{
+    if(scannerRef.current){
+      try{ await scannerRef.current.stop(); await scannerRef.current.clear() }catch{ /* ignore */ }
+      scannerRef.current=null
     }
   }
 
-  const startScanner = async () => {
-    setStatus('scanning')
-    setErrorMsg('')
-
-    try {
-      // Dynamic import so it doesn't break if lib is missing
-      const { Html5Qrcode } = await import('html5-qrcode')
-      const scanner = new Html5Qrcode(scannerDivId)
-      scannerRef.current = scanner
-
+  const startScanner=async()=>{
+    setStatus('scanning'); setErrorMsg('')
+    try{
+      const { Html5Qrcode }=await import('html5-qrcode')
+      const scanner=new Html5Qrcode(scannerDivId)
+      scannerRef.current=scanner
       await scanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
-        (decoded) => {
-          // QR detected — stop and check in
-          doCheckIn(decoded)
-        },
-        () => {} // ignore per-frame errors
+        { facingMode:'environment' },
+        { fps:10, qrbox:{ width:230, height:230 } },
+        (decoded)=>{ doCheckIn(decoded) },
+        ()=>{}
       )
-    } catch (err) {
-      console.error('Scanner error:', err)
-      const msg = err?.name === 'NotAllowedError'
-        ? 'Camera access denied. Please allow camera permission and try again.'
-        : 'Camera not available. Please enter the token manually below.'
-      setErrorMsg(msg)
-      setStatus('idle')
+    }catch{
+      setStatus('error')
+      setErrorMsg('Cannot access camera. Please allow camera permission, or enter the code manually.')
     }
   }
 
-  const stopScanner = async () => {
-    if (scannerRef.current) {
-      try {
-        await scannerRef.current.stop()
-        scannerRef.current.clear()
-      } catch { /* ignore */ }
-      scannerRef.current = null
-    }
-  }
-
-  const reset = async () => {
+  const doCheckIn=async(raw)=>{
     await stopScanner()
-    setStatus('idle')
-    setResult(null)
-    setErrorMsg('')
-    setManualToken('')
+    setStatus('loading'); setErrorMsg('')
+    let tok=(raw||'').trim()
+    if(tok.includes('/checkin/')) tok=tok.split('/checkin/').pop().split('?')[0].trim()
+    try{
+      const { data }=await axios.post(`${API}/meetings/checkin`,{ qrToken:tok })
+      setResult(data); setStatus('success')
+      toast.success(`+${data.pointsAwarded} points earned!`)
+    }catch(err){
+      const res=err.response?.data
+      if(res?.alreadyCheckedIn){ setResult({ pointsAwarded:res.pointsAwarded }); setStatus('already') }
+      else { setErrorMsg(res?.message||'Check-in failed. Invalid or expired QR code.'); setStatus('error') }
+    }
   }
 
-  const isIdle     = status === 'idle'
-  const isScanning = status === 'scanning'
-  const isLoading  = status === 'loading'
-  const isSuccess  = status === 'success'
-  const isAlready  = status === 'already'
-  const isError    = status === 'error'
+  const reset=()=>{ setStatus('idle'); setResult(null); setErrorMsg(''); setManualToken(''); setShowManual(false) }
 
   return (
-    <div style={{ paddingBottom:80 }}>
-
+    <div style={{ fontFamily:"'Plus Jakarta Sans','Inter',sans-serif", color:C.ink, minHeight:'100%' }}>
       {/* Header */}
-      <div style={{ background:'#0F1F5C', padding:'18px 20px 22px', position:'relative', overflow:'hidden' }}>
-        <div aria-hidden style={{ position:'absolute', bottom:-40, right:-40, width:140, height:140, borderRadius:'50%', background:'rgba(245,196,0,0.08)', pointerEvents:'none' }} />
-        <button onClick={()=>navigate('/kabataan')} style={{ background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.15)', borderRadius:8, padding:'5px 12px', color:'rgba(255,255,255,0.8)', fontSize:12, fontWeight:600, cursor:'pointer', marginBottom:12, fontFamily:'inherit', display:'inline-flex', alignItems:'center', gap:5 }}>
-          <Icon name="chevronLeft" size={13} color="rgba(255,255,255,0.8)"/> Home
-        </button>
-        <h1 style={{ color:'white', fontSize:20, fontWeight:800, marginBottom:3 }}>QR Check-in</h1>
-        <p style={{ color:'rgba(255,255,255,0.4)', fontSize:13 }}>Physically attend the event and scan the QR code shown by your SK Officer</p>
+      <div style={{ background:'linear-gradient(135deg,#4F46E5,#7C3AED)', padding:'24px 20px', color:'#fff' }}>
+        <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>Scan to Check In 📷</h1>
+        <p style={{ fontSize:12.5, opacity:0.85, margin:'3px 0 0' }}>Scan the SK's QR code at events to earn points</p>
       </div>
 
-      <div style={{ padding:'16px', maxWidth:480, margin:'0 auto' }}>
+      <div style={{ padding:16, maxWidth:440, margin:'0 auto' }}>
 
-        {/* ── SUCCESS ── */}
-        {isSuccess && result && (
-          <div style={{ background:'linear-gradient(135deg,#065F46,#059669)', borderRadius:20, padding:'32px 24px', textAlign:'center', marginBottom:16, color:'white' }}>
-            <div style={{ width:64, height:64, borderRadius:'50%', background:'rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }}>
-              <Icon name="check" size={30} color="white"/>
-            </div>
-            <h2 style={{ fontSize:22, fontWeight:800, marginBottom:6 }}>Check-in Successful!</h2>
-            {result.meeting?.title && <p style={{ fontSize:14, opacity:0.8, marginBottom:16 }}>{result.meeting.title}</p>}
-            <div style={{ background:'rgba(255,255,255,0.15)', borderRadius:14, padding:'14px 24px', display:'inline-block', marginBottom:20 }}>
-              <p style={{ fontSize:12, opacity:0.7, marginBottom:4 }}>Points Earned</p>
-              <p style={{ fontSize:44, fontWeight:800, color:'#FFE140', lineHeight:1 }}>+{result.pointsAwarded}</p>
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <Link to="/kabataan/points" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', background:'rgba(255,255,255,0.2)', color:'white', borderRadius:12, fontWeight:700, fontSize:14, textDecoration:'none', border:'1px solid rgba(255,255,255,0.3)' }}>
-                View My Points <Icon name="arrowRight" size={15} color="white"/>
-              </Link>
-              <button onClick={reset} style={{ padding:'11px', borderRadius:12, border:'1px solid rgba(255,255,255,0.25)', background:'transparent', color:'rgba(255,255,255,0.7)', fontWeight:600, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
-                Scan Another Event
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── ALREADY CHECKED IN ── */}
-        {isAlready && (
-          <div style={{ background:'#EBF0FF', border:'2px solid #0F1F5C', borderRadius:20, padding:'28px 24px', textAlign:'center', marginBottom:16 }}>
-            <div style={{ width:52, height:52, borderRadius:'50%', background:'#0F1F5C', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 14px' }}>
-              <Icon name="check" size={24} color="white"/>
-            </div>
-            <h2 style={{ fontSize:18, fontWeight:800, color:'#0F1F5C', marginBottom:6 }}>Already Checked In!</h2>
-            <p style={{ fontSize:13, color:'#5A6A8A', marginBottom: result?.pointsAwarded ? 8 : 16 }}>You already attended this event.</p>
-            {result?.pointsAwarded > 0 && <p style={{ fontSize:14, fontWeight:700, color:'#D97706', marginBottom:16 }}>You earned {result.pointsAwarded} pts from this event.</p>}
-            <button onClick={reset} style={{ width:'100%', padding:'12px', borderRadius:12, background:'#0F1F5C', border:'none', color:'white', fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:'inherit' }}>
-              Scan Another Event
+        {/* IDLE */}
+        {status==='idle' && (
+          <div style={{ background:C.card, border:`1px solid ${C.line}`, borderRadius:20, padding:'32px 24px', textAlign:'center' }}>
+            <div style={{ width:96, height:96, borderRadius:26, background:'linear-gradient(135deg,#EEF0FF,#F5F3FF)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:44, margin:'0 auto 20px' }}>📷</div>
+            <h2 style={{ fontSize:19, fontWeight:800, margin:'0 0 6px' }}>Ready to check in?</h2>
+            <p style={{ fontSize:13, color:C.slate, margin:'0 0 24px', lineHeight:1.5 }}>Point your camera at the QR code shown by an SK official at the event.</p>
+            <button onClick={startScanner} style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:14, fontSize:15, fontWeight:700, cursor:'pointer', boxShadow:'0 8px 22px rgba(79,70,229,0.3)' }}>
+              Open Camera Scanner
             </button>
-          </div>
-        )}
-
-        {/* ── ERROR ── */}
-        {isError && (
-          <div style={{ background:'#FEE8EA', border:'1.5px solid rgba(192,17,31,0.2)', borderRadius:16, padding:'16px', marginBottom:16 }}>
-            <p style={{ fontWeight:700, fontSize:14, color:'#C0111F', marginBottom:4 }}>Check-in Failed</p>
-            <p style={{ fontSize:13, color:'#5A6A8A' }}>{errorMsg}</p>
-          </div>
-        )}
-
-        {/* ── LOADING ── */}
-        {isLoading && (
-          <div style={{ background:'white', borderRadius:20, border:'1px solid #E4E9F2', padding:'48px 24px', textAlign:'center', marginBottom:16 }}>
-            <div style={{ width:44, height:44, borderRadius:'50%', border:'3px solid #E4E9F2', borderTopColor:'#0F1F5C', animation:'spin 0.65s linear infinite', margin:'0 auto 16px' }} />
-            <p style={{ fontWeight:700, color:'#0D1B3E', fontSize:15 }}>Verifying check-in...</p>
-          </div>
-        )}
-
-        {/* ── SCANNER + MANUAL ENTRY ── */}
-        {(isIdle || isScanning || isError) && (
-          <>
-            {/* Camera Section */}
-            <div style={{ background:'white', borderRadius:20, border:'1px solid #E4E9F2', overflow:'hidden', marginBottom:14, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
-
-              {/* The html5-qrcode library renders INTO this div */}
-              <div
-                id={scannerDivId}
-                style={{
-                  width: '100%',
-                  minHeight: isScanning ? 280 : 0,
-                  overflow: 'hidden',
-                  background: isScanning ? '#000' : 'transparent',
-                }}
-              />
-
-              <div style={{ padding:'16px 18px' }}>
-                {!isScanning ? (
-                  <button onClick={startScanner} style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:10, width:'100%', padding:'14px', background:'#0F1F5C', border:'none', borderRadius:13, color:'white', fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 14px rgba(15,31,92,0.3)' }}>
-                    <Icon name="camera" size={18} color="white"/> Open Camera to Scan
-                  </button>
-                ) : (
-                  <>
-                    <p style={{ textAlign:'center', fontSize:13, color:'#5A6A8A', marginBottom:12 }}>
-                      Point your camera at the QR code shown by your SK Officer
-                    </p>
-                    <button onClick={()=>{ stopScanner(); setStatus('idle') }} style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'12px', border:'1.5px solid #E4E9F2', background:'transparent', borderRadius:12, color:'#5A6A8A', fontWeight:600, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
-                      <Icon name="x" size={13}/> Stop Scanner
-                    </button>
-                  </>
-                )}
+            <button onClick={()=>setShowManual(!showManual)} style={{ width:'100%', padding:'12px', background:'transparent', color:C.indigo, border:'none', fontSize:13, fontWeight:700, cursor:'pointer', marginTop:8 }}>
+              {showManual?'Hide':'Enter code manually instead'}
+            </button>
+            {showManual && (
+              <div style={{ marginTop:12, display:'flex', gap:8 }}>
+                <input value={manualToken} onChange={e=>setManualToken(e.target.value)} placeholder="Paste QR code" style={{ flex:1, padding:'12px', border:`1px solid ${C.line}`, borderRadius:12, fontSize:13, outline:'none' }} />
+                <button onClick={()=>manualToken&&doCheckIn(manualToken)} style={{ padding:'12px 18px', background:C.ink, color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer' }}>Go</button>
               </div>
-            </div>
-
-            {/* Manual token entry — for those whose camera doesn't work */}
-            <div style={{ background:'white', borderRadius:20, border:'1px solid #E4E9F2', padding:'18px', boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
-                <div style={{ flex:1, height:1, background:'#E4E9F2' }} />
-                <span style={{ fontSize:11, color:'#9DAAC4', fontWeight:600, whiteSpace:'nowrap' }}>CAMERA NOT WORKING?</span>
-                <div style={{ flex:1, height:1, background:'#E4E9F2' }} />
-              </div>
-              <p style={{ fontSize:12, color:'#5A6A8A', marginBottom:12, lineHeight:1.65 }}>
-                Ask your <strong> SK Officer at the venue</strong> for the token. Type it below — do not ask anyone outside the event.
-              </p>
-              <label style={{ display:'block', fontSize:12, fontWeight:600, color:'#5A6A8A', marginBottom:7 }}>Enter Token</label>
-              <input
-                style={{ width:'100%', padding:'11px 13px', border:'1.5px solid #E0E8F5', borderRadius:10, fontSize:13, fontFamily:'monospace', color:'#0D1B3E', outline:'none', marginBottom:10, background:'#F6F8FC', boxSizing:'border-box' }}
-                placeholder="Type the token given by your SK Officer..."
-                value={manualToken}
-                onChange={e => setManualToken(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && manualToken.trim() && doCheckIn(manualToken)}
-                onFocus={e => e.target.style.borderColor='#0F1F5C'}
-                onBlur={e  => e.target.style.borderColor='#E0E8F5'}
-              />
-              <button
-                onClick={() => doCheckIn(manualToken)}
-                disabled={!manualToken.trim()}
-                style={{ width:'100%', padding:'12px', borderRadius:12, border:'1.5px solid #E0E8F5', background:manualToken.trim()?'#F4F7FF':'#F6F8FC', color:manualToken.trim()?'#0F1F5C':'#9DAAC4', fontWeight:600, fontSize:13, cursor:manualToken.trim()?'pointer':'not-allowed', fontFamily:'inherit', transition:'all 0.15s' }}>
-                Check In with Token
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* Points guide */}
-        {(isIdle || isError) && (
-          <div style={{ background:'white', borderRadius:20, border:'1px solid #E4E9F2', padding:'16px 18px', marginTop:14 }}>
-            <h3 style={{ fontWeight:700, fontSize:13, marginBottom:12, color:'#0D1B3E' }}>Points Per Activity Type</h3>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              {[['Meeting',10],['Workshop',15],['Event',20],['Seminar',15],['Livelihood',20],['Sports',15]].map(([type,pts])=>(
-                <div key={type} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 10px', background:'#F6F8FC', borderRadius:9, border:'1px solid #E4E9F2' }}>
-                  <span style={{ fontSize:12, color:'#5A6A8A' }}>{type}</span>
-                  <span style={{ fontSize:13, fontWeight:700, color:'#0F1F5C' }}>{pts} pts</span>
-                </div>
-              ))}
-            </div>
+            )}
           </div>
         )}
 
+        {/* SCANNING */}
+        {status==='scanning' && (
+          <div style={{ background:C.card, border:`1px solid ${C.line}`, borderRadius:20, padding:20, textAlign:'center' }}>
+            <div style={{ borderRadius:16, overflow:'hidden', background:'#000', marginBottom:16 }}>
+              <div id={scannerDivId} style={{ width:'100%' }} />
+            </div>
+            <p style={{ fontSize:13, color:C.slate, margin:'0 0 16px' }}>📍 Point at the QR code…</p>
+            <button onClick={()=>{ stopScanner(); reset() }} style={{ width:'100%', padding:'12px', background:C.bg, color:C.slate, border:'none', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer' }}>Cancel</button>
+          </div>
+        )}
+
+        {/* LOADING */}
+        {status==='loading' && (
+          <div style={{ background:C.card, border:`1px solid ${C.line}`, borderRadius:20, padding:'48px 24px', textAlign:'center' }}>
+            <div style={{ width:44, height:44, border:`3px solid ${C.line}`, borderTopColor:C.indigo, borderRadius:'50%', animation:'sp .7s linear infinite', margin:'0 auto 16px' }} />
+            <p style={{ fontSize:14, fontWeight:700, color:C.slate }}>Checking you in…</p>
+            <style>{`@keyframes sp{to{transform:rotate(360deg)}}`}</style>
+          </div>
+        )}
+
+        {/* SUCCESS */}
+        {status==='success' && result && (
+          <div style={{ background:'linear-gradient(135deg,#059669,#10B981)', borderRadius:24, padding:'40px 28px', textAlign:'center', color:'#fff', boxShadow:'0 16px 40px rgba(5,150,105,0.3)' }}>
+            <div style={{ fontSize:64, marginBottom:12, animation:'pop .4s ease' }}>🎉</div>
+            <h2 style={{ fontSize:24, fontWeight:800, margin:'0 0 6px' }}>Checked In!</h2>
+            {result.meeting?.title && <p style={{ fontSize:14, opacity:0.9, margin:'0 0 20px' }}>{result.meeting.title}</p>}
+            <div style={{ background:'rgba(255,255,255,0.2)', borderRadius:18, padding:'18px', margin:'0 0 24px' }}>
+              <p style={{ fontSize:13, opacity:0.9, margin:0 }}>You earned</p>
+              <p style={{ fontSize:40, fontWeight:800, margin:'4px 0 0' }}>+{result.pointsAwarded} <span style={{ fontSize:18 }}>pts</span></p>
+            </div>
+            <button onClick={()=>navigate('/kabataan/points')} style={{ width:'100%', padding:'14px', background:'#fff', color:C.emerald, border:'none', borderRadius:14, fontSize:15, fontWeight:800, cursor:'pointer', marginBottom:8 }}>View My Points</button>
+            <button onClick={reset} style={{ width:'100%', padding:'12px', background:'rgba(255,255,255,0.15)', color:'#fff', border:'none', borderRadius:14, fontSize:14, fontWeight:700, cursor:'pointer' }}>Scan Another</button>
+            <style>{`@keyframes pop{0%{transform:scale(0)}70%{transform:scale(1.2)}100%{transform:scale(1)}}`}</style>
+          </div>
+        )}
+
+        {/* ALREADY CHECKED IN */}
+        {status==='already' && (
+          <div style={{ background:C.card, border:`1px solid ${C.line}`, borderRadius:24, padding:'40px 28px', textAlign:'center' }}>
+            <div style={{ fontSize:56, marginBottom:12 }}>✅</div>
+            <h2 style={{ fontSize:21, fontWeight:800, margin:'0 0 6px' }}>Already Checked In</h2>
+            <p style={{ fontSize:13.5, color:C.slate, margin:'0 0 24px', lineHeight:1.5 }}>You've already earned your points for this event. No double points!</p>
+            <button onClick={()=>navigate('/kabataan/points')} style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:14, fontSize:15, fontWeight:700, cursor:'pointer', marginBottom:8 }}>View My Points</button>
+            <button onClick={reset} style={{ width:'100%', padding:'12px', background:C.bg, color:C.slate, border:'none', borderRadius:14, fontSize:14, fontWeight:700, cursor:'pointer' }}>Scan Another</button>
+          </div>
+        )}
+
+        {/* ERROR */}
+        {status==='error' && (
+          <div style={{ background:C.card, border:`1px solid ${C.line}`, borderRadius:24, padding:'40px 28px', textAlign:'center' }}>
+            <div style={{ width:80, height:80, borderRadius:22, background:'#FFF1F3', display:'flex', alignItems:'center', justifyContent:'center', fontSize:38, margin:'0 auto 16px' }}>😕</div>
+            <h2 style={{ fontSize:20, fontWeight:800, margin:'0 0 6px' }}>Check-in Failed</h2>
+            <p style={{ fontSize:13.5, color:C.slate, margin:'0 0 24px', lineHeight:1.5 }}>{errorMsg}</p>
+            <button onClick={reset} style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#4F46E5,#7C3AED)', color:'#fff', border:'none', borderRadius:14, fontSize:15, fontWeight:700, cursor:'pointer' }}>Try Again</button>
+          </div>
+        )}
+
+        {/* How it works */}
+        {status==='idle' && (
+          <div style={{ marginTop:16, background:'#EEF0FF', borderRadius:16, padding:'16px 18px' }}>
+            <p style={{ fontSize:13, fontWeight:800, color:C.indigo, margin:'0 0 10px' }}>How it works</p>
+            {[
+              'Attend an SK event or meeting',
+              'Ask the SK official to show the QR code',
+              'Scan it here to instantly earn points',
+              'Redeem your points for rewards!',
+            ].map((s,i)=>(
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:i<3?8:0 }}>
+                <span style={{ width:22, height:22, borderRadius:'50%', background:C.indigo, color:'#fff', fontSize:11, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>{i+1}</span>
+                <span style={{ fontSize:12.5, color:C.slate }}>{s}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        /* Force html5-qrcode video to fill the container properly */
-        #${scannerDivId} video { width: 100% !important; object-fit: cover; }
-        #${scannerDivId} img  { display: none !important; }
-      `}</style>
     </div>
   )
 }

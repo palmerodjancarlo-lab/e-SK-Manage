@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { Icon } from '../../components/Icon'
 import toast from 'react-hot-toast'
-import skLogo from '../../assets/sk-logo.svg'
+import skLogo from '../../assets/sk-logo.png'
 
 export default function Login() {
   const { login }               = useAuth()
@@ -19,9 +19,10 @@ export default function Login() {
     try {
       const { user } = await login(form.email, form.password)
       toast.success(`Welcome back, ${user.firstName}!`)
-      if      (user.role === 'admin')      navigate('/admin/dashboard', { replace:true })
-      else if (user.role === 'sk_officer') navigate('/sk/dashboard',    { replace:true })
-      else                                 navigate('/kabataan',         { replace:true })
+      const SK_ROLES = ['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']
+      if      (user.role === 'admin')        navigate('/admin/dashboard', { replace:true })
+      else if (SK_ROLES.includes(user.role)) navigate('/sk/dashboard',    { replace:true })
+      else                                   navigate('/kabataan',         { replace:true })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Invalid email or password.')
     } finally { setLoading(false) }
@@ -89,6 +90,8 @@ export default function Login() {
               ))}
             </div>
           </div>
+
+          <p style={{ fontSize:11, color:'rgba(255,255,255,.15)', marginTop:40 }}>© 2025 e-SK Manage · CapsG4 · MIMAROPA</p>
         </div>
       </div>
 
@@ -165,7 +168,8 @@ export default function Login() {
               </div>
 
               <div style={{ textAlign:'right', marginBottom:28 }}>
-                <span style={{ fontSize:13, color:'#0F2878', fontWeight:700, cursor:'default' }}>Forgot password?</span>
+                <span style={{ fontSize:13, color:'#94A3B8' }}>Forgot password? </span>
+                <span style={{ fontSize:13, color:'#0F2878', fontWeight:700, cursor:'default' }}>Contact Admin</span>
               </div>
 
               <button type="submit" disabled={loading} style={{
@@ -199,8 +203,15 @@ export default function Login() {
             }}
             onMouseEnter={e=>{ e.currentTarget.style.borderColor='#0F2878'; e.currentTarget.style.background='#F4F7FF' }}
             onMouseLeave={e=>{ e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='white' }}>
-              Don't have an account? <strong style={{ color:'#0F2878' }}>Create account</strong>
+              Don't have an account? <strong style={{ color:'#0F2878' }}>Create one free</strong>
             </Link>
+
+            {/* Role badges */}
+            <div style={{ display:'flex', justifyContent:'center', gap:8, marginTop:28 }}>
+              {[{l:'Admin',bg:'#FEE8EA',c:'#C0111F'},{l:'SK Officer',bg:'#EBF0FF',c:'#0F2878'},{l:'Kabataan',bg:'#DCFCE7',c:'#15803D'}].map(r=>(
+                <span key={r.l} style={{ padding:'4px 12px', borderRadius:999, fontSize:11, fontWeight:700, color:r.c, background:r.bg }}>{r.l}</span>
+              ))}
+            </div>
           </div>
         </div>
       </div>

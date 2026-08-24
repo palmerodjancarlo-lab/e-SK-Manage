@@ -1,193 +1,138 @@
 const mongoose = require('mongoose')
 const bcrypt   = require('bcryptjs')
 
-// Lahat ng barangay sa Marinduque — para sa validation
-const BARANGAYS = {
-  Boac: [
-    'Agot','Agumaymayan','Amoingon','Apitong','Balagasan','Balaring',
-    'Balimbing','Balogo','Bamban','Bangbangalon','Bantad','Bantay',
-    'Bayuti','Binunga','Boi','Boton','Buliasnin','Bunganay','Caganhao',
-    'Canat','Catubugan','Cawit','Daig','Daypay','Duyay','Hinapulan',
-    'Ihatub','Isok I','Isok II Poblacion','Laylay','Lupac','Mahinhin',
-    'Mainit','Malbog','Maligaya','Malusak','Mansiwat','Mataas na Bayan',
-    'Maybo','Mercado','Murallon','Ogbac','Pawa','Pili','Poctoy','Poras',
-    'Puting Buhangin','Puyog','Sabong','San Miguel','Santol','Sawi',
-    'Tabi','Tabigue','Tagwak','Tambunan','Tampus','Tanza','Tugos',
-    'Tumagabok','Tumapon'
+// Scope: Barangay Tawiran, Sta. Cruz, Marinduque only
+// Can expand to other barangays in the future
+
+const MUNICIPALITY = 'Santa Cruz'
+const BARANGAY     = 'Tawiran'
+
+// Roles in the system:
+// admin          — IT Staff, manages all user accounts
+// sk_chairperson — SK Chairperson, full SK access, approves projects/finances
+// sk_secretary   — handles announcements, meeting minutes, documents
+// sk_treasurer   — handles budget, expenses, financial records
+// sk_kagawad     — the other 5 SK officials, basic SK access
+// kabataan       — KK members, self-register, view and participate
+
+const ROLES = [
+  'admin',
+  'sk_chairperson',
+  'sk_secretary',
+  'sk_treasurer',
+  'sk_kagawad',
+  'kabataan',
+]
+
+// What each role can do — used in authorize() middleware
+const ROLE_PERMISSIONS = {
+  admin: [
+    'manage_users',
+    'create_sk_accounts',
+    'view_audit_logs',
+    'view_all',
   ],
-  Buenavista: [
-    'Bagacay','Bagtingon','Barangay I','Barangay II','Barangay III',
-    'Barangay IV','Bicas-bicas','Caigangan','Daykitin','Libas','Malbog',
-    'Sihi','Timbo','Tungib-Lipata','Yook'
+  sk_chairperson: [
+    'manage_programs',
+    'manage_projects',
+    'manage_activities',
+    'manage_announcements',
+    'manage_meetings',
+    'manage_finances',
+    'approve_expenses',
+    'record_attendance',
+    'award_points',
+    'view_all_sk',
   ],
-  Gasan: [
-    'Antipolo','Bachao Ibaba','Bachao Ilaya','Bacongbacong','Bahi',
-    'Bangbang','Banot','Banuyo','Barangay I','Barangay II','Barangay III',
-    'Bognuyan','Cabugao','Dawis','Dili','Libtangin','Mahunig','Mangiliol',
-    'Masiga','Matandang Gasan','Pangi','Pingan','Tabionan','Tapuyan','Tiguion'
+  sk_secretary: [
+    'manage_announcements',
+    'manage_meetings',
+    'manage_documents',
+    'record_attendance',
+    'view_all_sk',
   ],
-  Mogpog: [
-    'Anapog-Sibucao','Argao','Balanacan','Banto','Bintakay','Bocboc',
-    'Butansapa','Candahon','Capayang','Danao','Dulong Bayan','Gitnang Bayan',
-    'Guisian','Hinadharan','Hinanggayon','Ino','Janagdong','Lamesa','Laon',
-    'Magapua','Malayak','Malusak','Mampaitan','Mangyan-Mababad','Market Site',
-    'Mataas na Bayan','Mendez','Nangka I','Nangka II','Paye','Pili',
-    'Puting Buhangin','Sayao','Silangan','Sumangga','Tarug','Villa Mendez'
+  sk_treasurer: [
+    'manage_finances',
+    'manage_budget',
+    'record_expenses',
+    'approve_expenses',
+    'view_all_sk',
   ],
-  'Santa Cruz': [
-    'Alobo','Angas','Aturan','Bagong Silang Poblacion','Baguidbirin',
-    'Baliis','Balogo','Banahaw Poblacion','Bangcuangan','Banogbog','Biga',
-    'Botilao','Buyabod','Dating Bayan','Devilla','Dolores','Haguimit','Hupi',
-    'Ipil','Jolo','Kaganhao','Kalangkang','Kamandugan','Kasily','Kilo-kilo',
-    'Kiñaman','Labo','Lamesa','Landy','Lapu-lapu Poblacion','Libjo','Lipa',
-    'Lusok','Maharlika Poblacion','Makulapnit','Maniwaya','Manlibunan',
-    'Masaguisi','Masalukot','Matalaba','Mongpong','Morales','Napo',
-    'Pag-asa Poblacion','Pantayin','Polo','Pulong-Parang','Punong',
-    'San Antonio','San Isidro','Tagum','Tamayo','Tambangan','Tawiran','Taytay'
+  sk_kagawad: [
+    'view_all_sk',
+    'record_attendance',
   ],
-  Torrijos: [
-    'Bangwayin','Bayakbakin','Bolo','Bonliw','Buangan','Cabuyo','Cagpo',
-    'Dampulan','Kay Duke','Mabuhay','Makawayan','Malibago','Malinao',
-    'Maranlig','Marlangga','Matuyatuya','Nangka','Pakaskasan','Payanas',
-    'Poblacion','Poctoy','Sibuyao','Suha','Talawan','Tigwi'
-  ]
+  kabataan: [
+    'view_announcements',
+    'view_meetings',
+    'view_programs',
+    'view_points',
+    'edit_own_profile',
+  ],
 }
 
-const ALL_BARANGAYS = Object.values(BARANGAYS).flat()
-
 const UserSchema = new mongoose.Schema({
-  firstName: {
-    type: String,
-    required: [true, 'First name is required'],
-    trim: true
-  },
-  lastName: {
-    type: String,
-    required: [true, 'Last name is required'],
-    trim: true
-  },
+  firstName: { type:String, required:[true,'First name is required'], trim:true },
+  lastName:  { type:String, required:[true,'Last name is required'],  trim:true },
   email: {
-    type: String,
-    required: [true, 'Email is required'],
-    unique: true,
+    type:      String,
+    required:  [true,'Email is required'],
+    unique:    true,
     lowercase: true,
-    trim: true,
-    match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email']
+    trim:      true,
+    match:     [/^\S+@\S+\.\S+$/, 'Please enter a valid email'],
   },
   password: {
-    type: String,
-    required: [true, 'Password is required'],
-    minlength: [6, 'Password must be at least 6 characters'],
-    select: false
+    type:      String,
+    required:  [true,'Password is required'],
+    minlength: [6,'Password must be at least 6 characters'],
+    select:    false,
   },
   role: {
-    type: String,
-    enum: ['admin', 'sk_officer', 'kabataan_user'],
-    default: 'kabataan_user'
-  },
-  municipality: {
-    type: String,
-    enum: {
-      values: ['Boac', 'Buenavista', 'Gasan', 'Mogpog', 'Santa Cruz', 'Torrijos'],
-      message: '{VALUE} is not a valid municipality in Marinduque'
-    },
-    required: [true, 'Municipality is required']
-  },
-  barangay: {
-    type: String,
-    trim: true,
-    required: [true, 'Barangay is required'],
-    validate: {
-      validator: function (value) {
-        return ALL_BARANGAYS.includes(value)
-      },
-      message: props => `"${props.value}" is not a valid barangay in Marinduque`
-    }
-  },
-  position: {
-    type: String,
-    trim: true,
-    default: ''
-  },
-  contactNumber: {
-    type: String,
-    trim: true,
-    default: ''
-  },
-  photo: {
-    type: String,
-    default: ''
-  },
-  isActive: {
-    type: Boolean,
-    default: true
-  },
-  isVerified: {
-    type: Boolean,
-    default: false
-  },
-  points: {
-    type: Number,
-    default: 0
+    type:    String,
+    enum:    ROLES,
+    default: 'kabataan',
   },
 
-  // SK Official Application — kapag nag-apply ang user bilang SK official
-  // sa registration. Naghihintay ng Admin approval bago ma-upgrade ang role.
-  skApplication: {
-    isApplying: {
-      type: Boolean,
-      default: false
-    },
-    appliedPosition: {
-      type: String,
-      default: ''
-    },
-    whyApply: {
-      type: String,
-      default: ''
-    },
-    proofDescription: {
-      type: String,
-      default: ''
-    },
-    appliedAt: {
-      type: Date
-    },
-    status: {
-      type: String,
-      enum: ['pending', 'approved', 'rejected'],
-      default: 'pending'
-    },
-    reviewedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null
-    },
-    reviewedAt: {
-      type: Date,
-      default: null
-    },
-    rejectReason: {
-      type: String,
-      default: ''
-    }
-  }
+  // Scope — fixed to Tawiran, Sta. Cruz for now
+  municipality: { type:String, default: MUNICIPALITY },
+  barangay:     { type:String, default: BARANGAY },
 
-}, { timestamps: true })
+  // SK-specific fields
+  position:      { type:String, trim:true, default:'' },  // e.g. "SK Kagawad - Education"
+  contactNumber: { type:String, trim:true, default:'' },
+  photo:         { type:String, default:'' },
+  address:       { type:String, trim:true, default:'' },
 
-// Hash password bago i-save
-UserSchema.pre('save', async function () {
+  // Status
+  isActive:   { type:Boolean, default:true },
+  isVerified: { type:Boolean, default:false },
+
+  // Points — for kabataan participation tracking
+  points: { type:Number, default:0 },
+
+}, { timestamps:true })
+
+// Hash password before save
+UserSchema.pre('save', async function() {
   if (!this.isModified('password')) return
   const salt    = await bcrypt.genSalt(10)
   this.password = await bcrypt.hash(this.password, salt)
 })
 
-// Compare password method
-UserSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password)
+// Compare password
+UserSchema.methods.matchPassword = async function(entered) {
+  return await bcrypt.compare(entered, this.password)
 }
 
-// Export BARANGAYS para magamit sa ibang files (e.g. Register.jsx dropdown)
-UserSchema.statics.BARANGAYS = BARANGAYS
+// Helper: check if role is an SK official
+UserSchema.methods.isSKOfficial = function() {
+  return ['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad'].includes(this.role)
+}
+
+UserSchema.statics.ROLES            = ROLES
+UserSchema.statics.ROLE_PERMISSIONS = ROLE_PERMISSIONS
+UserSchema.statics.MUNICIPALITY     = MUNICIPALITY
+UserSchema.statics.BARANGAY         = BARANGAY
 
 module.exports = mongoose.model('User', UserSchema)

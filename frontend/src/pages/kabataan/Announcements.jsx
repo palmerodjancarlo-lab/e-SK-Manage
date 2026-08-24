@@ -1,96 +1,65 @@
+// kabataan/Announcements.jsx — view SK news
 import { useState, useEffect } from 'react'
-import { Icon } from '../../components/Icon'
 import axios from 'axios'
-import toast from 'react-hot-toast'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
-const CATS = ['All','General','Events','Programs','Meetings','Opportunities','History']
-const CAT_BADGE = { General:'badge-gray', Events:'badge-blue', Programs:'badge-green', Meetings:'badge-gold', Opportunities:'badge-amber', History:'badge-gray' }
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+const C = { bg:'#F4F6FB', card:'#fff', ink:'#0F1F5C', slate:'#64748B', faint:'#94A3B8', line:'#EAEDF3', indigo:'#4F46E5', sky:'#0284C7', rose:'#E11D48', amber:'#D97706' }
+const CAT = {
+  general:{ l:'General', c:C.indigo, bg:'#EEF0FF', e:'📢' },
+  event:{ l:'Event', c:C.sky, bg:'#F0F9FF', e:'🎉' },
+  urgent:{ l:'Urgent', c:C.rose, bg:'#FFF1F3', e:'🚨' },
+  reminder:{ l:'Reminder', c:C.amber, bg:'#FFFBEB', e:'⏰' },
+}
 
 export default function KabataanAnnouncements() {
-  const [items,    setItems]    = useState([])
-  const [loading,  setLoading]  = useState(true)
-  const [cat,      setCat]      = useState('All')
-  const [search,   setSearch]   = useState('')
-  const [selected, setSelected] = useState(null)
+  const [items,setItems]=useState([])
+  const [filter,setFilter]=useState('all')
+  const [loading,setLoading]=useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-    const params = {}
-    if (cat !== 'All') params.category = cat
-    if (search) params.search = search
-    axios.get(`${API}/announcements`, { params })
-      .then(r => { if (!cancelled) { setItems(r.data.announcements); setLoading(false) } })
-      .catch(() => { if (!cancelled) { toast.error('Failed to load.'); setLoading(false) } })
-    return () => { cancelled = true }
-  }, [cat, search])
+  useEffect(()=>{
+    axios.get(`${API}/announcements`).then(r=>setItems(r.data.announcements||[])).catch(()=>{}).finally(()=>setLoading(false))
+  },[])
+
+  const shown=filter==='all'?items:items.filter(i=>i.category===filter)
 
   return (
-    <div style={{ paddingBottom:80 }}>
-      <div style={{ background:'#0F1F5C', padding:'18px 20px 20px' }}>
-        <h1 style={{ color:'white', fontSize:20, fontWeight:800, marginBottom:3 }}>Announcements</h1>
-        <p style={{ color:'rgba(255,255,255,0.45)', fontSize:13 }}>SK news and updates</p>
+    <div style={{ fontFamily:"'Plus Jakarta Sans','Inter',sans-serif", color:C.ink }}>
+      <div style={{ background:'linear-gradient(135deg,#4F46E5,#7C3AED)', padding:'24px 20px', color:'#fff' }}>
+        <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>News 📰</h1>
+        <p style={{ fontSize:12.5, opacity:0.85, margin:'3px 0 0' }}>Latest updates from your SK</p>
       </div>
 
-      <div style={{ padding:'16px 16px 0' }}>
-        <div style={{ position:'relative', marginBottom:12 }}>
-          <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-faint)', display:'flex' }}><Icon name="search" size={14}/></span>
-          <input className="form-input" placeholder="Search announcements..." value={search} onChange={e=>setSearch(e.target.value)} style={{ paddingLeft:36 }} />
-        </div>
-        <div className="tabs" style={{ marginBottom:16 }}>
-          {CATS.map(c=><button key={c} className={`tab-btn ${cat===c?'active':''}`} onClick={()=>setCat(c)}>{c}</button>)}
-        </div>
+      {/* filter chips */}
+      <div style={{ padding:'14px 16px 0', display:'flex', gap:8, overflowX:'auto' }}>
+        {['all',...Object.keys(CAT)].map(k=>(
+          <button key={k} onClick={()=>setFilter(k)} style={{ padding:'7px 14px', borderRadius:999, border:'none', whiteSpace:'nowrap', fontSize:12.5, fontWeight:700, cursor:'pointer', background:filter===k?'linear-gradient(135deg,#4F46E5,#7C3AED)':'#fff', color:filter===k?'#fff':C.slate, boxShadow:filter===k?'none':`0 0 0 1px ${C.line}` }}>
+            {k==='all'?'All':`${CAT[k].e} ${CAT[k].l}`}
+          </button>
+        ))}
       </div>
 
-      <div style={{ padding:'0 16px' }}>
-        {loading ? (
-          <div style={{ display:'flex', justifyContent:'center', padding:48 }}><div className="spinner"/></div>
-        ) : items.length === 0 ? (
-          <div className="card"><div className="empty-state"><div className="empty-icon"><Icon name="megaphone" size={40}/></div><div className="empty-title">No Announcements</div></div></div>
-        ) : (
-          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-            {items.map(ann => (
-              <div key={ann._id} className="card card-hover" style={{ padding:'14px 16px' }} onClick={()=>setSelected(ann)}>
-                <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
-                  <div style={{ width:36, height:36, borderRadius:9, background:ann.isPinned?'var(--gold-100)':'var(--blue-100)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                    <Icon name="megaphone" size={16} color={ann.isPinned?'var(--gold-600)':'var(--blue-800)'} />
+      <div style={{ padding:16 }}>
+        {loading ? <Loader/> :
+          shown.length===0 ? <Empty/> :
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            {shown.map(a=>{
+              const cat=CAT[a.category]||CAT.general
+              return (
+                <div key={a._id} style={{ background:C.card, border:`1px solid ${C.line}`, borderRadius:16, padding:18, borderLeft:`4px solid ${cat.c}` }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                    <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:999, background:cat.bg, color:cat.c }}>{cat.e} {cat.l}</span>
+                    <span style={{ fontSize:11, color:C.faint, fontWeight:600 }}>{new Date(a.createdAt).toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'})}</span>
                   </div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ display:'flex', gap:6, marginBottom:4, flexWrap:'wrap' }}>
-                      <span className={`badge ${CAT_BADGE[ann.category]||'badge-gray'}`}>{ann.category}</span>
-                      {ann.isPinned && <span className="badge badge-gold">Pinned</span>}
-                    </div>
-                    <p style={{ fontWeight:700, fontSize:14, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ann.title}</p>
-                    <p style={{ fontSize:12, color:'var(--text-muted)', marginTop:4, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden', lineHeight:1.5 }}>{ann.content}</p>
-                    <p style={{ fontSize:11, color:'var(--text-faint)', marginTop:6 }}>{new Date(ann.createdAt).toLocaleDateString('en-PH')}</p>
-                  </div>
+                  <p style={{ fontSize:16, fontWeight:800, margin:'0 0 6px' }}>{a.title}</p>
+                  <p style={{ fontSize:13.5, color:C.slate, margin:0, lineHeight:1.6, whiteSpace:'pre-wrap' }}>{a.content}</p>
+                  {a.author && <p style={{ fontSize:11, color:C.faint, margin:'10px 0 0' }}>— {a.author.firstName} {a.author.lastName}</p>}
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              )
+            })}
+          </div>}
       </div>
-
-      {selected && (
-        <div className="modal-overlay" onClick={()=>setSelected(null)}>
-          <div className="modal-box" style={{ maxWidth:540 }} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header">
-              <div style={{ display:'flex', gap:6 }}>
-                <span className={`badge ${CAT_BADGE[selected.category]||'badge-gray'}`}>{selected.category}</span>
-                {selected.isPinned && <span className="badge badge-gold">Pinned</span>}
-              </div>
-              <button className="modal-close" onClick={()=>setSelected(null)}><Icon name="x" size={14}/></button>
-            </div>
-            <div className="modal-body">
-              <h2 style={{ fontSize:17, fontWeight:700, marginBottom:8 }}>{selected.title}</h2>
-              <p style={{ fontSize:12, color:'var(--text-faint)', marginBottom:16 }}>
-                {selected.author?.firstName} {selected.author?.lastName} · {new Date(selected.createdAt).toLocaleDateString('en-PH',{year:'numeric',month:'long',day:'numeric'})}
-              </p>
-              <p style={{ fontSize:14, lineHeight:1.75, color:'var(--text-muted)', whiteSpace:'pre-wrap' }}>{selected.content}</p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
+function Empty(){ return <div style={{ textAlign:'center', padding:'50px 20px', background:'#fff', border:'1px dashed #EAEDF3', borderRadius:18 }}><div style={{ fontSize:38, marginBottom:8 }}>📭</div><p style={{ fontSize:14.5, fontWeight:700, margin:0 }}>No news yet</p></div> }
+function Loader(){ return <div style={{ display:'flex', justifyContent:'center', padding:50 }}><div style={{ width:30, height:30, border:'3px solid #EAEDF3', borderTopColor:'#4F46E5', borderRadius:'50%', animation:'sp .7s linear infinite' }}/><style>{`@keyframes sp{to{transform:rotate(360deg)}}`}</style></div> }

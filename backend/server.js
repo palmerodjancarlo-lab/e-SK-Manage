@@ -3,6 +3,8 @@ const dotenv    = require('dotenv')
 const cors      = require('cors')
 const morgan    = require('morgan')
 const connectDB = require('./config/db')
+const programRoutes = require('./routes/programRoutes')
+const authorize = require('./middleware/authorize')
 
 dotenv.config()
 connectDB()
@@ -28,6 +30,8 @@ app.use(`${BASE_URI}/meetings`,      require('./routes/meetingRoutes'))
 app.use(`${BASE_URI}/programs`,      require('./routes/programRoutes'))
 app.use(`${BASE_URI}/points`,        require('./routes/pointsRoutes'))
 app.use(`${BASE_URI}/admin`,         require('./routes/adminRoutes'))
+app.use(`${BASE_URI}/finance`,       require('./routes/financeRoutes'))
+app.use(`${BASE_URI}/upload`,        require('./routes/uploadRoutes'))
 
 app.get('/', (req, res) => {
   res.json({ message: '✅ e-SK Manage API is running' })

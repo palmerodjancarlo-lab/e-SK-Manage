@@ -9,5 +9,6 @@ router.get('/profile',          protect, ctrl.getProfile)
 router.put('/profile',          protect, ctrl.updateProfile)
 router.put('/change-password',  protect, ctrl.changePassword)
 router.delete('/account',       protect, ctrl.deleteAccount)
+router.get('/members',          protect, ctrl.getMembers)   // SK + admin can view roster
 
 module.exports = router

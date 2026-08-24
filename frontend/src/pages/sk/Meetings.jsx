@@ -1,532 +1,254 @@
-// SK Meetings — full QR display with token for manual entry
-import { useState, useEffect, useRef } from 'react'
-import { Icon } from '../../components/Icon'
-import { QRCodeSVG } from 'qrcode.react'
-import axios from 'axios'
-import toast from 'react-hot-toast'
+// sk/Meetings.jsx — SK meetings/events management + QR activation
+// SK creates meetings (auto-generates QR token), activates the QR at event time,
+// and displays a full-screen QR for kabataan to scan and earn points.
 
-const API     = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
-const TYPES   = ['Meeting','Workshop','Event','Seminar','Livelihood','Sports']
-const TYPE_PTS= { Meeting:10, Workshop:15, Event:20, Seminar:15, Livelihood:20, Sports:15 }
-const MUNIS   = ['Boac','Buenavista','Gasan','Mogpog','Santa Cruz','Torrijos']
+import { useState, useEffect } from 'react'
+import { useAuth } from '../../context/AuthContext'
+import { QRCodeCanvas } from 'qrcode.react'
+import axios from 'axios'
+
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+
+const T = {
+  bg:'#F7F8FA', card:'#FFFFFF', ink:'#111827', slate:'#6B7280', faint:'#9CA3AF',
+  line:'#EEF0F3', indigo:'#4F46E5', indigoSoft:'#EEF0FF',
+  emerald:'#059669', emeraldSoft:'#ECFDF5', amber:'#D97706', amberSoft:'#FFFBEB',
+  rose:'#E11D48', roseSoft:'#FFF1F3',
+}
+
+const field = { width:'100%', padding:'10px 12px', border:`1px solid ${T.line}`, borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box', fontFamily:'inherit' }
+const lbl   = { fontSize:11, fontWeight:700, color:T.slate, textTransform:'uppercase', letterSpacing:'0.4px', display:'block', marginBottom:6 }
+
+const SK_MANAGE = ['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad','admin']
 
 export default function SKMeetings() {
-  const [meetings,  setMeetings]  = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [showForm,  setShowForm]  = useState(false)
-  const [qrMeeting, setQrMeeting] = useState(null)
-  const [tab,       setTab]       = useState('upcoming')
-  const [copied,      setCopied]      = useState(false)
-  const [feedback,    setFeedback]    = useState(null)  // meeting whose comments we're viewing
-  const qrRef = useRef(null)
+  const { user } = useAuth()
+  const canManage = SK_MANAGE.includes(user?.role)
 
-  const openFeedback = async (m) => {
-    try {
-      const { data } = await axios.get(`${API}/meetings/${m._id}`)
-      setFeedback(data.meeting)
-    } catch { setFeedback(m) }
+  const [items,setItems]=useState([])
+  const [loading,setLoading]=useState(true)
+  const [modal,setModal]=useState(false)
+  const [qrMeeting,setQrMeeting]=useState(null)
+  const [msg,setMsg]=useState('')
+
+  const load = async () => {
+    try{ const r=await axios.get(`${API}/meetings`); setItems((r.data.meetings||[]).sort((a,b)=>new Date(b.date)-new Date(a.date))) }catch{ /* ignore */ }
+    setLoading(false)
   }
-
-  const handleDeleteComment = async (commentId) => {
-    if (!window.confirm('Delete this comment?')) return
-    try {
-      await axios.delete(`${API}/meetings/${feedback._id}/comments/${commentId}`)
-      setFeedback(prev => ({ ...prev, comments: prev.comments.filter(c => c._id !== commentId) }))
-      toast.success('Comment deleted.')
-    } catch { toast.error('Failed.') }
-  }
-
-  const emptyForm = { title:'', type:'Meeting', date:'', time:'', venue:'', municipality:'Boac', agenda:'' }
-  const [form, setForm] = useState(emptyForm)
-
-  const fetchMeetings = () => {
-    setLoading(true)
+  useEffect(()=>{
+    let active = true
     axios.get(`${API}/meetings`)
-      .then(r => setMeetings(r.data.meetings || []))
-      .catch(() => toast.error('Failed to load meetings.'))
-      .finally(() => setLoading(false))
-  }
-  useEffect(() => { fetchMeetings() }, []) // eslint-disable-line
+      .then(r=>{ if(active) setItems((r.data.meetings||[]).sort((a,b)=>new Date(b.date)-new Date(a.date))) })
+      .catch(()=>{})
+      .finally(()=>{ if(active) setLoading(false) })
+    return ()=>{ active=false }
+  },[])
+  const flash=(m)=>{ setMsg(m); setTimeout(()=>setMsg(''),3000) }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    try {
-      const { data } = await axios.post(`${API}/meetings`, form)
-      toast.success('Meeting created! QR code is ready.')
-      setShowForm(false)
-      setForm(emptyForm)
-      fetchMeetings()
-      // Auto-open QR modal for the new meeting
-      if (data.meeting) setQrMeeting(data.meeting)
-    } catch (err) { toast.error(err.response?.data?.message || 'Failed to create.') }
+  const del = async (id) => {
+    if(!confirm('Delete this meeting?')) return
+    await axios.delete(`${API}/meetings/${id}`); flash('Meeting deleted.'); load()
   }
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this meeting?')) return
-    try {
-      await axios.delete(`${API}/meetings/${id}`)
-      toast.success('Deleted.')
-      if (qrMeeting?._id === id) setQrMeeting(null)
-      fetchMeetings()
-    } catch { toast.error('Failed.') }
-  }
-
-  const activateQR = async (meeting) => {
-    try {
-      const { data } = await axios.post(`${API}/meetings/${meeting._id}/generate-qr`, {
-        durationMinutes: 120
-      })
-      toast.success('QR activated! Kabataan can now check in.')
-      fetchMeetings()
-      // Update the qrMeeting state with fresh data
-      setQrMeeting({ ...meeting, ...data.meeting, qrToken: data.qrToken, qrActive: true })
-    } catch (err) { toast.error(err.response?.data?.message || 'Failed to activate QR.') }
-  }
-
-  const deactivateQR = async (meeting) => {
-    try {
-      await axios.put(`${API}/meetings/${meeting._id}/deactivate-qr`)
-      toast.success('QR deactivated.')
-      fetchMeetings()
-      setQrMeeting(prev => ({ ...prev, qrActive: false }))
-    } catch { toast.error('Failed.') }
-  }
-
-  const downloadQR = () => {
-    const svg = qrRef.current?.querySelector('svg')
-    if (!svg) return
-    const serialized = new XMLSerializer().serializeToString(svg)
-    const blob = new Blob([serialized], { type: 'image/svg+xml' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `qr-${qrMeeting.title.replace(/\s+/g,'-')}.svg`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('QR downloaded!')
-  }
-
-  const copyToken = () => {
-    if (!qrMeeting?.qrToken) return
-    navigator.clipboard.writeText(qrMeeting.qrToken)
-    setCopied(true)
-    toast.success('Token copied to clipboard!')
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-
-  const now      = new Date()
-  const upcoming = meetings.filter(m => new Date(m.date) >= now)
-  const past     = meetings.filter(m => new Date(m.date) < now)
-  const displayed= tab === 'upcoming' ? upcoming : past
-
-  const pts = (m) => TYPE_PTS[m.type] || 10
+  const now = new Date()
+  const upcoming = items.filter(m=>new Date(m.date)>=now)
+  const past     = items.filter(m=>new Date(m.date)<now)
 
   return (
-    <div>
-      {/* Header */}
-      <div className="page-header">
+    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:T.ink }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12, marginBottom:20 }}>
         <div>
-          <h1 className="page-title">Meetings & Events</h1>
-          <p className="page-subtitle">Manage SK events and QR check-in</p>
+          <h1 style={{ fontSize:22, fontWeight:800, margin:0, letterSpacing:'-0.5px' }}>Meetings & Events</h1>
+          <p style={{ fontSize:12.5, color:T.slate, margin:'4px 0 0' }}>Create events and activate QR check-in so kabataan earn points.</p>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
-          <Icon name="plus" size={14}/> New Meeting
-        </button>
+        {canManage && <button onClick={()=>setModal(true)} style={{ padding:'9px 16px', background:T.indigo, color:'#fff', border:'none', borderRadius:10, fontSize:12.5, fontWeight:600, cursor:'pointer' }}>+ New Meeting</button>}
       </div>
 
-      {/* Tabs */}
-      <div className="tabs" style={{ marginBottom:18 }}>
-        <button className={`tab-btn ${tab==='upcoming'?'active':''}`} onClick={()=>setTab('upcoming')}>
-          Upcoming ({upcoming.length})
-        </button>
-        <button className={`tab-btn ${tab==='past'?'active':''}`} onClick={()=>setTab('past')}>
-          Past ({past.length})
-        </button>
+      {msg && <div style={{ background:T.emeraldSoft, border:'1px solid #A7F3D0', color:T.emerald, padding:'10px 16px', borderRadius:10, marginBottom:16, fontSize:13, fontWeight:600 }}>✓ {msg}</div>}
+
+      {loading ? <p style={{ textAlign:'center', color:T.faint, padding:40 }}>Loading…</p> : (
+        <>
+          {/* Upcoming */}
+          <h2 style={{ fontSize:14, fontWeight:700, color:T.slate, margin:'0 0 12px' }}>Upcoming ({upcoming.length})</h2>
+          {upcoming.length===0
+            ? <div style={{ background:T.card, border:`1px dashed ${T.line}`, borderRadius:14, padding:30, textAlign:'center', color:T.faint, fontSize:13, marginBottom:24 }}>No upcoming meetings</div>
+            : <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:28 }}>
+                {upcoming.map(m=><MeetingCard key={m._id} m={m} canManage={canManage} onDelete={()=>del(m._id)} onShowQR={()=>setQrMeeting(m)} onRefreshed={load} flash={flash} />)}
+              </div>}
+
+          {/* Past */}
+          {past.length>0 && <>
+            <h2 style={{ fontSize:14, fontWeight:700, color:T.slate, margin:'0 0 12px' }}>Past ({past.length})</h2>
+            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+              {past.map(m=><MeetingCard key={m._id} m={m} canManage={canManage} onDelete={()=>del(m._id)} onShowQR={()=>setQrMeeting(m)} onRefreshed={load} flash={flash} />)}
+            </div>
+          </>}
+        </>
+      )}
+
+      {modal && <MeetingModal onClose={()=>setModal(false)} onSaved={()=>{ setModal(false); load(); flash('Meeting created with QR ready.') }} />}
+      {qrMeeting && <QRModal meeting={qrMeeting} onClose={()=>{ setQrMeeting(null); load() }} flash={flash} />}
+    </div>
+  )
+}
+
+function MeetingCard({ m, canManage, onDelete, onShowQR }) {
+  const d = new Date(m.date)
+  const pts = m.pointsReward || m.points || 0
+  return (
+    <div style={{ background:T.card, border:`1px solid ${T.line}`, borderRadius:14, padding:16, display:'flex', gap:16, alignItems:'center' }}>
+      <div style={{ width:56, height:56, borderRadius:12, background:T.indigoSoft, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        <span style={{ fontSize:20, fontWeight:800, color:T.indigo, lineHeight:1 }}>{d.getDate()}</span>
+        <span style={{ fontSize:10, color:T.slate, textTransform:'uppercase' }}>{d.toLocaleDateString('en-PH',{month:'short'})}</span>
       </div>
-
-      {/* Meeting list */}
-      {loading ? (
-        <div style={{ display:'flex', justifyContent:'center', padding:60 }}>
-          <div className="spinner" style={{ width:36, height:36 }}/>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <h3 style={{ fontSize:15, fontWeight:700, margin:0 }}>{m.title}</h3>
+          {m.qrActive && <span style={{ fontSize:9, fontWeight:700, padding:'2px 8px', borderRadius:999, background:T.emeraldSoft, color:T.emerald }}>QR LIVE</span>}
         </div>
-      ) : displayed.length === 0 ? (
-        <div className="card">
-          <div className="empty-state">
-            <div className="empty-icon"><Icon name="calendar" size={40}/></div>
-            <div className="empty-title">No {tab} meetings</div>
-            {tab==='upcoming' && <div className="empty-desc">Click "New Meeting" to schedule one.</div>}
-          </div>
-        </div>
-      ) : (
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {displayed.map(m => {
-            const d = new Date(m.date)
-            return (
-              <div key={m._id} className="card" style={{ padding:'16px 18px' }}>
-                <div style={{ display:'flex', gap:14, alignItems:'flex-start', flexWrap:'wrap' }}>
-
-                  {/* Date block */}
-                  <div style={{ background:'var(--blue-800)', color:'white', borderRadius:10, padding:'10px 12px', textAlign:'center', minWidth:50, flexShrink:0 }}>
-                    <p style={{ fontSize:9, fontWeight:700, opacity:0.7 }}>{d.toLocaleString('default',{month:'short'}).toUpperCase()}</p>
-                    <p style={{ fontSize:20, fontWeight:800, lineHeight:1 }}>{d.getDate()}</p>
-                    <p style={{ fontSize:9, opacity:0.6 }}>{d.getFullYear()}</p>
-                  </div>
-
-                  {/* Info */}
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ display:'flex', gap:8, marginBottom:5, flexWrap:'wrap', alignItems:'center' }}>
-                      <h3 style={{ fontWeight:700, fontSize:15 }}>{m.title}</h3>
-                      <span className="badge badge-blue" style={{ fontSize:10 }}>{m.type}</span>
-                      <span className="badge badge-green" style={{ fontSize:10 }}>+{pts(m)} pts</span>
-                      {m.qrToken && m.qrActive && (
-                        <span className="badge badge-amber" style={{ fontSize:10 }}>QR Active</span>
-                      )}
-                      {m.comments?.length > 0 && (
-                        <span className="badge badge-blue" style={{ fontSize:10, display:'flex', alignItems:'center', gap:3, cursor:'pointer' }}
-                          onClick={(e)=>{ e.stopPropagation(); openFeedback(m) }}>
-                          <Icon name="chatBubble" size={10}/> {m.comments.length} feedback
-                        </span>
-                      )}
-                    </div>
-                    <p style={{ fontSize:12, color:'var(--text-faint)', marginBottom:4 }}>
-                      {m.time && `${m.time} · `}{m.venue}{m.municipality && `, ${m.municipality}`}
-                    </p>
-                    {m.agenda && (
-                      <p style={{ fontSize:12, color:'var(--text-muted)', lineHeight:1.5 }}>{m.agenda}</p>
-                    )}
-                    {/* Show short token preview */}
-                    {m.qrToken && (
-                      <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6 }}>
-                        <Icon name="qrCode" size={12} color="var(--text-faint)"/>
-                        <code style={{ fontSize:11, color:'var(--text-faint)', background:'var(--bg-subtle)', padding:'2px 6px', borderRadius:4, letterSpacing:'0.3px' }}>
-                          {m.qrToken.slice(0,16)}...
-                        </code>
-                        <span style={{ fontSize:11, color:'var(--text-faint)' }}>· Check-in token ready</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display:'flex', gap:6, flexShrink:0, flexWrap:'wrap' }}>
-                    {/* Always show QR button — every meeting has a token */}
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => setQrMeeting(m)}
-                      title="Show QR Code for check-in">
-                      <Icon name="qrCode" size={13}/> QR Code
-                    </button>
-                    {/* Feedback button — shows kabataan comments */}
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => openFeedback(m)}
-                      title="View Kabataan Feedback"
-                      style={{ position:'relative' }}>
-                      <Icon name="chatBubble" size={13}/> Feedback
-                      {m.comments?.length > 0 && (
-                        <span style={{ position:'absolute', top:-5, right:-5, background:'var(--red-600)', color:'white', borderRadius:999, fontSize:9, fontWeight:800, padding:'1px 5px', lineHeight:1.5 }}>
-                          {m.comments.length}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => handleDelete(m._id)}
-                      title="Delete meeting">
-                      <Icon name="trash" size={13}/>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
+        <p style={{ fontSize:12, color:T.faint, margin:'4px 0 0' }}>
+          {d.toLocaleDateString('en-PH',{weekday:'short',month:'long',day:'numeric'})} · {d.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'})}
+          {m.location && ` · ${m.location}`}{pts>0 && ` · ⭐ ${pts} pts`}
+        </p>
+      </div>
+      {canManage && (
+        <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+          <button onClick={onShowQR} style={{ padding:'8px 14px', background:m.qrActive?T.emerald:T.indigo, color:'#fff', border:'none', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer' }}>
+            {m.qrActive?'Show QR':'Activate QR'}
+          </button>
+          <button onClick={onDelete} style={{ padding:'8px 12px', background:T.roseSoft, color:T.rose, border:'none', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer' }}>Delete</button>
         </div>
       )}
+    </div>
+  )
+}
 
-      {/* ── CREATE FORM MODAL ── */}
-      {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="modal-box" style={{ maxWidth:560 }} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">New Meeting / Event</span>
-              <button className="modal-close" onClick={()=>setShowForm(false)}><Icon name="x" size={14}/></button>
+// ── QR full-screen display ──
+function QRModal({ meeting, onClose, flash }) {
+  const [qr,setQr]=useState({ token:meeting.qrToken, active:meeting.qrActive })
+  const [duration,setDuration]=useState(60)
+  const [checkins,setCheckins]=useState([])
+  const [loading,setLoading]=useState(false)
+
+  const loadCheckins = async () => {
+    try{ const r=await axios.get(`${API}/meetings/${meeting._id}/checkins`); setCheckins(r.data.checkins||r.data.attendees||[]) }catch{ /* ignore */ }
+  }
+  useEffect(()=>{ loadCheckins(); const t=setInterval(loadCheckins,5000); return ()=>clearInterval(t) },[]) // eslint-disable-line
+
+  const activate = async () => {
+    setLoading(true)
+    try{
+      const r=await axios.post(`${API}/meetings/${meeting._id}/generate-qr`,{ durationMinutes:Number(duration) })
+      setQr({ token:r.data.qrToken, active:true }); flash('QR activated!')
+    }catch(e){ alert(e.response?.data?.message||'Error') } finally{ setLoading(false) }
+  }
+  const deactivate = async () => {
+    setLoading(true)
+    try{ await axios.put(`${API}/meetings/${meeting._id}/deactivate-qr`); setQr(q=>({...q,active:false})); flash('QR deactivated.') }
+    catch(e){ alert(e.response?.data?.message||'Error') } finally{ setLoading(false) }
+  }
+
+  // The value kabataan scans — the token itself
+  const qrValue = qr.token || ''
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:200, padding:20 }} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:440, maxHeight:'92vh', overflowY:'auto' }}>
+        <div style={{ padding:'20px 24px', borderBottom:`1px solid ${T.line}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div>
+            <h3 style={{ fontSize:17, fontWeight:800, margin:0 }}>{meeting.title}</h3>
+            <p style={{ fontSize:12, color:T.faint, margin:'2px 0 0' }}>QR Check-in</p>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:24, color:T.slate, cursor:'pointer' }}>×</button>
+        </div>
+
+        <div style={{ padding:24, textAlign:'center' }}>
+          {qr.active && qrValue ? (
+            <>
+              <div style={{ display:'inline-block', padding:20, background:'#fff', borderRadius:16, border:`3px solid ${T.indigo}`, marginBottom:16 }}>
+                <QRCodeCanvas value={qrValue} size={240} level="M" includeMargin={false} />
+              </div>
+              <p style={{ fontSize:14, fontWeight:700, color:T.emerald, margin:'0 0 4px' }}>✓ QR is LIVE — ready to scan</p>
+              <p style={{ fontSize:12, color:T.slate, margin:'0 0 20px' }}>Kabataan: open the Scan tab and point your camera here.</p>
+              <button onClick={deactivate} disabled={loading} style={{ padding:'10px 20px', background:T.roseSoft, color:T.rose, border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer' }}>Stop / Deactivate QR</button>
+            </>
+          ) : (
+            <>
+              <div style={{ width:240, height:240, margin:'0 auto 20px', borderRadius:16, border:`2px dashed ${T.line}`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:T.faint, background:T.bg }}>
+                <span style={{ fontSize:48 }}>📷</span>
+                <span style={{ fontSize:13, marginTop:8 }}>QR not active yet</span>
+              </div>
+              <div style={{ marginBottom:16, textAlign:'left' }}>
+                <label style={lbl}>QR active for (minutes)</label>
+                <input type="number" style={field} value={duration} onChange={e=>setDuration(e.target.value)} />
+              </div>
+              <button onClick={activate} disabled={loading} style={{ padding:'12px 24px', background:T.indigo, color:'#fff', border:'none', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer', width:'100%' }}>
+                {loading?'Activating…':'🚀 Activate QR Check-in'}
+              </button>
+            </>
+          )}
+
+          {/* Live check-ins */}
+          <div style={{ marginTop:24, textAlign:'left', borderTop:`1px solid ${T.line}`, paddingTop:16 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+              <span style={{ fontSize:13, fontWeight:700 }}>Checked in ({checkins.length})</span>
+              <span style={{ fontSize:10, color:T.faint }}>Auto-refreshing…</span>
             </div>
-            <form onSubmit={handleSubmit}>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">Title</label>
-                  <input className="form-input" required placeholder="e.g. Monthly SK Meeting"
-                    value={form.title} onChange={e=>setForm({...form,title:e.target.value})} />
-                </div>
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Type</label>
-                    <select className="form-select" value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>
-                      {TYPES.map(t=><option key={t}>{t}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Municipality</label>
-                    <select className="form-select" value={form.municipality} onChange={e=>setForm({...form,municipality:e.target.value})}>
-                      {MUNIS.map(m=><option key={m}>{m}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Date</label>
-                    <input type="date" className="form-input" required
-                      value={form.date} onChange={e=>setForm({...form,date:e.target.value})} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Time</label>
-                    <input type="time" className="form-input"
-                      value={form.time} onChange={e=>setForm({...form,time:e.target.value})} />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Venue</label>
-                  <input className="form-input" required placeholder="e.g. Boac Municipal Gym"
-                    value={form.venue} onChange={e=>setForm({...form,venue:e.target.value})} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Agenda / Description</label>
-                  <textarea className="form-textarea" rows={3}
-                    placeholder="Describe the event agenda..."
-                    value={form.agenda} onChange={e=>setForm({...form,agenda:e.target.value})} />
-                </div>
-                <div style={{ padding:'12px 14px', background:'var(--blue-100)', borderRadius:10, border:'1px solid rgba(26,58,143,0.15)', display:'flex', gap:10, alignItems:'center' }}>
-                  <Icon name="qrCode" size={16} color="var(--blue-800)"/>
-                  <p style={{ fontSize:12, color:'var(--blue-800)', fontWeight:500 }}>
-                    A QR code + token will be auto-generated. Kabataan users earn <strong>+{TYPE_PTS[form.type]||10} points</strong> when they check in.
-                  </p>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-ghost btn-sm" onClick={()=>setShowForm(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-sm">
-                  <Icon name="plus" size={13}/> Create & Generate QR
-                </button>
-              </div>
-            </form>
+            {checkins.length===0
+              ? <p style={{ fontSize:12, color:T.faint, textAlign:'center', padding:'16px 0' }}>No check-ins yet</p>
+              : <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:180, overflowY:'auto' }}>
+                  {checkins.map((c,i)=>(
+                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', background:T.bg, borderRadius:8 }}>
+                      <div style={{ width:28, height:28, borderRadius:'50%', background:T.indigo, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700 }}>
+                        {(c.user?.firstName||c.firstName||'?')[0]}{(c.user?.lastName||c.lastName||'')[0]}
+                      </div>
+                      <span style={{ fontSize:12.5, fontWeight:600 }}>{c.user?.firstName||c.firstName} {c.user?.lastName||c.lastName}</span>
+                      <span style={{ fontSize:11, color:T.emerald, marginLeft:'auto', fontWeight:700 }}>✓</span>
+                    </div>
+                  ))}
+                </div>}
           </div>
         </div>
-      )}
+      </div>
+    </div>
+  )
+}
 
-      {/* ── QR CODE MODAL ── */}
-      {qrMeeting && (
-        <div className="modal-overlay" onClick={()=>setQrMeeting(null)}>
-          <div className="modal-box" style={{ maxWidth:440 }} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <span className="modal-title">QR Check-in Code</span>
-                <p style={{ fontSize:11, color:'var(--text-faint)', marginTop:2 }}>{qrMeeting.title}</p>
-              </div>
-              <button className="modal-close" onClick={()=>setQrMeeting(null)}><Icon name="x" size={14}/></button>
-            </div>
-
-            <div className="modal-body">
-
-              {qrMeeting.qrToken ? (
-                <>
-                  {/* Active / Inactive status + toggle button */}
-                  {qrMeeting.qrActive ? (
-                    <div style={{ padding:'12px 14px', background:'var(--green-100)', borderRadius:10, border:'1px solid rgba(21,128,61,0.2)', marginBottom:16 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                          <div style={{ width:8, height:8, borderRadius:'50%', background:'var(--green-600)', boxShadow:'0 0 0 3px rgba(21,128,61,0.2)' }}/>
-                          <p style={{ fontSize:13, color:'var(--green-600)', fontWeight:700 }}>
-                            QR is ACTIVE — Kabataan can check in!
-                          </p>
-                        </div>
-                        <button className="btn btn-sm btn-danger" onClick={()=>deactivateQR(qrMeeting)}>
-                          Stop QR
-                        </button>
-                      </div>
-                      <p style={{ fontSize:12, color:'var(--green-600)', opacity:0.8, marginTop:4 }}>
-                        Attendees earn +{pts(qrMeeting)} points per check-in.
-                      </p>
-                    </div>
-                  ) : (
-                    <div style={{ padding:'12px 14px', background:'var(--amber-100)', borderRadius:10, border:'1px solid rgba(217,119,6,0.2)', marginBottom:16 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <div>
-                          <p style={{ fontSize:13, color:'var(--amber-600)', fontWeight:700 }}>QR is NOT yet active</p>
-                          <p style={{ fontSize:12, color:'var(--amber-600)', opacity:0.8, marginTop:2 }}>Activate it when the event starts so kabataan can check in.</p>
-                        </div>
-                        <button className="btn btn-sm btn-primary" onClick={()=>activateQR(qrMeeting)}>
-                          <Icon name="qrCode" size={13}/> Activate QR
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* QR Code */}
-                  <div style={{ textAlign:'center', marginBottom:20 }}>
-                    <div ref={qrRef} style={{
-                      display:'inline-block', padding:20,
-                      background:'white', borderRadius:16,
-                      border:'2px solid var(--border)',
-                      boxShadow:'0 4px 20px rgba(0,0,0,0.08)',
-                    }}>
-                      <QRCodeSVG
-                        value={qrMeeting.qrToken}
-                        size={220}
-                        level="H"
-                        includeMargin={false}
-                      />
-                    </div>
-                    <p style={{ fontSize:11, color:'var(--text-faint)', marginTop:10 }}>
-                      Scan with the Kabataan Check-in scanner
-                    </p>
-                  </div>
-
-                  {/* Divider */}
-                  <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
-                    <div style={{ flex:1, height:1, background:'var(--border)' }}/>
-                    <span style={{ fontSize:11, fontWeight:700, color:'var(--text-faint)', whiteSpace:'nowrap' }}>
-                      CAN'T SCAN? USE THIS TOKEN
-                    </span>
-                    <div style={{ flex:1, height:1, background:'var(--border)' }}/>
-                  </div>
-
-                  {/* Token box — full token for manual paste */}
-                  <div style={{ marginBottom:16 }}>
-                    <p style={{ fontSize:11, fontWeight:700, color:'var(--text-muted)', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.4px' }}>
-                      Manual Check-in Token
-                    </p>
-                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                      <div style={{
-                        flex:1, padding:'10px 12px',
-                        background:'var(--bg-subtle)',
-                        border:'1.5px solid var(--border)',
-                        borderRadius:9, fontFamily:'monospace',
-                        fontSize:12, color:'var(--text-base)',
-                        wordBreak:'break-all', lineHeight:1.6,
-                        letterSpacing:'0.5px',
-                      }}>
-                        {qrMeeting.qrToken}
-                      </div>
-                      <button
-                        onClick={copyToken}
-                        className={`btn btn-sm ${copied ? 'btn-success' : 'btn-outline'}`}
-                        style={{ flexShrink:0, minWidth:70 }}
-                        title="Copy token">
-                        {copied ? <><Icon name="check" size={13}/> Copied!</> : <><Icon name="clipboardList" size={13}/> Copy</>}
-                      </button>
-                    </div>
-                    <p style={{ fontSize:11, color:'var(--text-faint)', marginTop:5 }}>
-                      Read this token out loud to attendees who cannot scan the QR code. Do not share this digitally.
-                    </p>
-                  </div>
-
-                  {/* Action buttons */}
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button className="btn btn-outline btn-sm" style={{ flex:1 }} onClick={downloadQR}>
-                      <Icon name="arrowDown" size={13}/> Download QR
-                    </button>
-                  </div>
-                </>
-              ) : (
-                /* No token yet — shouldn't happen with new backend but just in case */
-                <div style={{ textAlign:'center', padding:'24px 0' }}>
-                  <div style={{ width:48, height:48, borderRadius:'50%', background:'var(--amber-100)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 14px' }}>
-                    <Icon name="qrCode" size={22} color="var(--amber-600)"/>
-                  </div>
-                  <p style={{ fontWeight:700, fontSize:15, marginBottom:8 }}>No QR token yet</p>
-                  <p style={{ fontSize:13, color:'var(--text-muted)', marginBottom:20 }}>
-                    This meeting was created before auto-QR. Delete and recreate it to get a QR code.
-                  </p>
-                  <button className="btn btn-ghost btn-sm" onClick={()=>setQrMeeting(null)}>Close</button>
-                </div>
-              )}
-            </div>
-          </div>
+function MeetingModal({ onClose, onSaved }) {
+  const [f,setF]=useState({ title:'', description:'', date:'', time:'', location:'', pointsValue:'10' })
+  const [saving,setSaving]=useState(false)
+  const save=async()=>{
+    setSaving(true)
+    try{
+      const datetime=new Date(`${f.date}T${f.time||'00:00'}`).toISOString()
+      await axios.post(`${API}/meetings`,{ title:f.title, description:f.description, date:datetime, venue:f.location, pointsReward:Number(f.pointsValue)||0 })
+      onSaved()
+    }catch(e){ alert(e.response?.data?.message||'Error') } finally{ setSaving(false) }
+  }
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(17,24,39,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100, padding:20 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:480, maxHeight:'90vh', overflowY:'auto' }}>
+        <div style={{ padding:'18px 22px', borderBottom:`1px solid ${T.line}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <h3 style={{ fontSize:16, fontWeight:700, margin:0 }}>New Meeting / Event</h3>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:T.slate, cursor:'pointer' }}>×</button>
         </div>
-      )}
-
-      {/* ── FEEDBACK MODAL — Kabataan Comments ── */}
-      {feedback && (
-        <div className="modal-overlay" onClick={()=>setFeedback(null)}>
-          <div className="modal-box" style={{ maxWidth:520, maxHeight:'88vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <span className="modal-title">Kabataan Feedback</span>
-                <p style={{ fontSize:11, color:'var(--text-faint)', marginTop:2 }}>{feedback.title}</p>
-              </div>
-              <button className="modal-close" onClick={()=>setFeedback(null)}><Icon name="x" size={14}/></button>
-            </div>
-            <div className="modal-body">
-
-              {/* Summary bar */}
-              <div style={{ display:'flex', gap:10, marginBottom:20, flexWrap:'wrap' }}>
-                {[
-                  { l:'Check-ins',  v:feedback.checkedIn?.length||0,  c:'var(--green-600)',  bg:'var(--green-100)'  },
-                  { l:'Comments',   v:feedback.comments?.length||0,    c:'var(--blue-800)',   bg:'var(--blue-100)'   },
-                  { l:'RSVPs',      v:feedback.rsvp?.length||0,        c:'var(--amber-600)',  bg:'var(--amber-100)'  },
-                ].map(s=>(
-                  <div key={s.l} style={{ flex:1, minWidth:90, background:s.bg, border:`1px solid ${s.c}20`, borderRadius:10, padding:'10px 14px', textAlign:'center' }}>
-                    <p style={{ fontSize:22, fontWeight:800, color:s.c, lineHeight:1 }}>{s.v}</p>
-                    <p style={{ fontSize:11, color:s.c, marginTop:4, fontWeight:600 }}>{s.l}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* No comments yet */}
-              {(!feedback.comments || feedback.comments.length === 0) ? (
-                <div style={{ textAlign:'center', padding:'32px 0', color:'var(--text-faint)' }}>
-                  <div style={{ fontSize:40, marginBottom:12 }}>💬</div>
-                  <p style={{ fontWeight:700, fontSize:15, marginBottom:6 }}>No feedback yet</p>
-                  <p style={{ fontSize:13, color:'var(--text-muted)', lineHeight:1.6 }}>
-                    Kabataan users can leave comments on events from their Meetings page.<br/>
-                    Check back after the event!
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <p style={{ fontSize:12, color:'var(--text-faint)', fontWeight:600, marginBottom:14, textTransform:'uppercase', letterSpacing:'0.5px' }}>
-                    {feedback.comments.length} Comment{feedback.comments.length!==1?'s':''} from Kabataan
-                  </p>
-                  <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                    {feedback.comments.map(c => {
-                      const name = c.user ? `${c.user.firstName} ${c.user.lastName}` : 'User'
-                      const role = c.user?.role
-                      return (
-                        <div key={c._id} style={{ background:'var(--bg-subtle)', border:'1px solid var(--border)', borderRadius:11, padding:'12px 14px' }}>
-                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
-                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                              <div className="avatar avatar-sm" style={{ width:28, height:28, fontSize:11 }}>
-                                {c.user?.firstName?.[0]}{c.user?.lastName?.[0]}
-                              </div>
-                              <div>
-                                <p style={{ fontWeight:700, fontSize:13 }}>{name}</p>
-                                <p style={{ fontSize:11, color:'var(--text-faint)' }}>
-                                  {role==='kabataan_user'?'Kabataan User':role==='sk_officer'?'SK Officer':role}
-                                  {' · '}{new Date(c.createdAt).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={()=>handleDeleteComment(c._id)}
-                              title="Delete comment"
-                              style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-faint)', padding:'2px 4px', borderRadius:5, display:'flex', transition:'color 0.15s' }}
-                              onMouseEnter={e=>e.currentTarget.style.color='var(--red-600)'}
-                              onMouseLeave={e=>e.currentTarget.style.color='var(--text-faint)'}>
-                              <Icon name="trash" size={13}/>
-                            </button>
-                          </div>
-                          <p style={{ fontSize:13, color:'var(--text-base)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{c.text}</p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
+        <div style={{ padding:22, display:'flex', flexDirection:'column', gap:14 }}>
+          <div><label style={lbl}>Title</label><input style={field} value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="e.g. General Assembly" /></div>
+          <div><label style={lbl}>Description</label><textarea style={{...field,minHeight:60,resize:'vertical'}} value={f.description} onChange={e=>setF({...f,description:e.target.value})} /></div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div><label style={lbl}>Date</label><input type="date" style={field} value={f.date} onChange={e=>setF({...f,date:e.target.value})} /></div>
+            <div><label style={lbl}>Time</label><input type="time" style={field} value={f.time} onChange={e=>setF({...f,time:e.target.value})} /></div>
           </div>
+          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:12 }}>
+            <div><label style={lbl}>Location</label><input style={field} value={f.location} onChange={e=>setF({...f,location:e.target.value})} placeholder="Barangay Hall" /></div>
+            <div><label style={lbl}>Points ⭐</label><input type="number" style={field} value={f.pointsValue} onChange={e=>setF({...f,pointsValue:e.target.value})} /></div>
+          </div>
+          <p style={{ fontSize:11, color:T.slate, margin:0, background:T.indigoSoft, padding:'9px 12px', borderRadius:8 }}>
+            📷 A QR code is auto-created. Activate it at the event so kabataan can scan and earn the points.
+          </p>
+          <button onClick={save} disabled={saving||!f.title||!f.date} style={{ padding:'11px', background:T.indigo, color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', opacity:saving||!f.title||!f.date?0.6:1 }}>{saving?'Creating…':'Create Meeting'}</button>
         </div>
-      )}
-
+      </div>
     </div>
   )
 }

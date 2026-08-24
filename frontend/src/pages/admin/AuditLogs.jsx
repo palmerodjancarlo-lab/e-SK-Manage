@@ -1,104 +1,114 @@
-// Admin Audit Logs — full activity history
+// admin/AuditLogs.jsx — Full system audit trail
 import { useState, useEffect } from 'react'
-import { Icon } from '../../components/Icon'
 import axios from 'axios'
-import toast from 'react-hot-toast'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
 
-const ACTION_COLOR = {
-  LOGIN:'#22C55E', REGISTER:'#3B82F6', CREATE_MEETING:'#D97706',
-  CREATE_ANNOUNCEMENT:'#7C3AED', CREATE_USER:'#1A3A8F', UPDATE_ROLE:'#F97316',
-  DEACTIVATE_USER:'#EF4444', ACTIVATE_USER:'#22C55E', QR_CHECKIN:'#D97706',
-  DELETE_ANNOUNCEMENT:'#EF4444', GENERATE_QR:'#10B981', CREATE_PROGRAM:'#10B981',
-  APPROVE_SK_APPLICATION:'#22C55E', REJECT_SK_APPLICATION:'#EF4444',
+const C = {
+  navy:'#0C2340', navyL:'#E8EEF8', gold:'#B8860B', green:'#14532D', greenL:'#F0FDF4',
+  red:'#7F1D1D', redL:'#FFF1F2', amber:'#78350F', amberL:'#FFFBEB',
+  border:'#CBD5E1', white:'#FFFFFF', text:'#0F172A', muted:'#64748B', faint:'#94A3B8', bg:'#F1F5F9',
 }
 
-export default function AdminAuditLogs() {
+const ACTION_COLOR = {
+  LOGIN:'#14532D', LOGOUT:'#64748B', REGISTER:'#1D4ED8',
+  CREATE_SK_ACCOUNT:'#0C2340', UPDATE_USER:'#1D4ED8', DELETE_USER:'#7F1D1D',
+  TOGGLE_USER:'#78350F', RESET_PASSWORD:'#78350F', CHANGE_PASSWORD:'#78350F',
+  RECORD_FUND:'#14532D', EDIT_FUND:'#78350F', VOID_FUND:'#7F1D1D',
+  RECORD_EXPENSE:'#7F1D1D', APPROVE_EXPENSE:'#14532D', REJECT_EXPENSE:'#7F1D1D', VOID_EXPENSE:'#7F1D1D',
+  CREATE_PROGRAM:'#6D28D9', CREATE_PROJECT:'#1D4ED8', CREATE_ACTIVITY:'#B8860B',
+  RECORD_ATTENDANCE:'#14532D', CREATE_MEETING:'#B8860B',
+}
+
+const ROLE_LABEL = {
+  admin:'Admin/IT', sk_chairperson:'SK Chairperson', sk_secretary:'SK Secretary',
+  sk_treasurer:'SK Treasurer', sk_kagawad:'SK Kagawad', kabataan:'Kabataan',
+}
+
+export default function AuditLogs() {
   const [logs,    setLogs]    = useState([])
-  const [loading, setLoading] = useState(true)
   const [search,  setSearch]  = useState('')
-  const [filter,  setFilter]  = useState('All')
+  const [action,  setAction]  = useState('all')
+  const [loading, setLoading] = useState(true)
+
 
   useEffect(() => {
     axios.get(`${API}/admin/logs`)
       .then(r => setLogs(r.data.logs))
-      .catch(() => toast.error('Failed to load logs.'))
+      .catch(console.error)
       .finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const actions = ['All', ...new Set(logs.map(l => l.action))]
+  const actions = ['all', ...new Set(logs.map(l => l.action))]
+
   const filtered = logs.filter(l => {
-    const s = `${l.action} ${l.details} ${l.user?.email || ''} ${l.user?.firstName || ''}`.toLowerCase()
-    return s.includes(search.toLowerCase()) && (filter === 'All' || l.action === filter)
+    const matchAction = action === 'all' || l.action === action
+    const matchSearch = search === '' ||
+      `${l.details} ${l.user?.firstName} ${l.user?.lastName}`.toLowerCase().includes(search.toLowerCase())
+    return matchAction && matchSearch
   })
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Audit Logs</h1>
-          <p className="page-subtitle">{logs.length} total entries</p>
+    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:C.text }}>
+
+      <div style={{ marginBottom:24 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+          <div style={{ width:16, height:3, background:C.gold, borderRadius:2 }} />
+          <span style={{ fontSize:10, fontWeight:700, color:C.gold, letterSpacing:'2px', textTransform:'uppercase' }}>System Audit</span>
         </div>
+        <h1 style={{ fontSize:22, fontWeight:800, color:C.navy, margin:0 }}>Audit Trail</h1>
+        <p style={{ fontSize:12, color:C.muted, marginTop:4 }}>Every significant action is logged — who did it, what they did, and when. This ensures full accountability.</p>
       </div>
 
-      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap' }}>
-        <div style={{ position:'relative', flex:1, minWidth:180 }}>
-          <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-faint)', display:'flex' }}>
-            <Icon name="search" size={14} />
-          </span>
-          <input className="form-input" placeholder="Search logs..." value={search} onChange={e=>setSearch(e.target.value)} style={{ paddingLeft:36 }} />
-        </div>
-        <select className="form-select" style={{ width:'auto', minWidth:160 }} value={filter} onChange={e=>setFilter(e.target.value)}>
-          {actions.map(a=><option key={a}>{a}</option>)}
+      {/* Filters */}
+      <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search logs..."
+          style={{ flex:1, minWidth:200, padding:'8px 12px', border:`1px solid ${C.border}`, borderRadius:6, fontSize:12, outline:'none' }} />
+        <select value={action} onChange={e=>setAction(e.target.value)}
+          style={{ padding:'8px 12px', border:`1px solid ${C.border}`, borderRadius:6, fontSize:12, background:C.white, cursor:'pointer' }}>
+          {actions.map(a => <option key={a} value={a}>{a === 'all' ? 'All Actions' : a.replace(/_/g,' ')}</option>)}
         </select>
+        <div style={{ padding:'8px 14px', background:C.bg, borderRadius:6, fontSize:12, color:C.muted, fontWeight:600, display:'flex', alignItems:'center' }}>
+          {filtered.length} entries
+        </div>
       </div>
 
-      {loading ? (
-        <div style={{ display:'flex', justifyContent:'center', padding:60 }}><div className="spinner" style={{ width:36, height:36 }} /></div>
-      ) : filtered.length === 0 ? (
-        <div className="card"><div className="empty-state">
-          <div className="empty-icon"><Icon name="clipboardList" size={40} /></div>
-          <div className="empty-title">No logs found</div>
-        </div></div>
-      ) : (
-        <div className="table-wrapper">
-          <table className="table">
-            <thead><tr><th>Action</th><th>User</th><th>Details</th><th>Date & Time</th></tr></thead>
-            <tbody>
-              {filtered.map(log => {
-                const color = ACTION_COLOR[log.action] || 'var(--text-faint)'
-                return (
-                  <tr key={log._id}>
-                    <td>
-                      <span style={{ padding:'3px 9px', borderRadius:999, fontSize:11, fontWeight:700, background:`${color}15`, color, whiteSpace:'nowrap' }}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td>
-                      {log.user ? (
-                        <div>
-                          <div style={{ fontSize:13, fontWeight:600 }}>{log.user.firstName} {log.user.lastName}</div>
-                          <div style={{ fontSize:11, color:'var(--text-faint)' }}>{log.user.email}</div>
-                        </div>
-                      ) : <span style={{ color:'var(--text-faint)' }}>System</span>}
-                    </td>
-                    <td style={{ maxWidth:280 }}>
-                      <span style={{ fontSize:12, overflow:'hidden', textOverflow:'ellipsis', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>
-                        {log.details}
-                      </span>
-                    </td>
-                    <td style={{ whiteSpace:'nowrap', fontSize:12, color:'var(--text-faint)' }}>
-                      {new Date(log.createdAt).toLocaleDateString('en-PH')}<br/>
-                      {new Date(log.createdAt).toLocaleTimeString('en-PH', { hour:'2-digit', minute:'2-digit' })}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* Timeline */}
+      <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:8, overflow:'hidden' }}>
+        {loading ? (
+          <div style={{ padding:40, textAlign:'center', color:C.faint }}>Loading...</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding:40, textAlign:'center', color:C.faint }}>No logs found</div>
+        ) : filtered.map((log, i) => {
+          const color = ACTION_COLOR[log.action] || C.muted
+          return (
+            <div key={log._id} style={{ display:'flex', gap:14, padding:'14px 20px', borderBottom:`1px solid ${C.border}`, background:i%2?'#FAFBFC':C.white }}>
+              <div style={{ paddingTop:3 }}>
+                <div style={{ width:9, height:9, borderRadius:'50%', background:color }} />
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4, gap:10 }}>
+                  <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:999, background:`${color}18`, color, letterSpacing:'0.3px' }}>
+                    {log.action?.replace(/_/g,' ')}
+                  </span>
+                  <span style={{ fontSize:11, color:C.faint, flexShrink:0 }}>
+                    {new Date(log.createdAt).toLocaleString('en-PH', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}
+                  </span>
+                </div>
+                <p style={{ fontSize:13, color:C.text, margin:'0 0 3px', lineHeight:1.4 }}>{log.details}</p>
+                {log.user && (
+                  <p style={{ fontSize:11, color:C.faint, margin:0 }}>
+                    <strong style={{ color:C.muted }}>{log.user.firstName} {log.user.lastName}</strong>
+                    {' · '}{ROLE_LABEL[log.user.role] || log.user.role}
+                    {log.user.email && ` · ${log.user.email}`}
+                  </p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

@@ -1,198 +1,497 @@
-// SK Programs page — para sa pag-document ng mga programa at proyekto
-import { useState, useEffect } from 'react'
+// sk/Programs.jsx — Program → Project → Activity management
+// Shared by Admin and SK. Budget rolls up automatically.
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
-import toast from 'react-hot-toast'
-import { useAuth } from '../../context/AuthContext'
-import { Icon } from '../../components/Icon'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
 
-const STATUS_STYLE = {
-  Upcoming:  { badge: 'badge-blue',  bar: 'var(--blue-800)' },
-  Ongoing:   { badge: 'badge-amber', bar: 'var(--amber-600)' },
-  Completed: { badge: 'badge-green', bar: 'var(--green-600)' },
-  Cancelled: { badge: 'badge-rose',  bar: 'var(--rose-600)' },
+const C = {
+  navy:'#0C2340', navyL:'#E8EEF8', gold:'#B8860B', goldL:'#FDF8EC',
+  green:'#14532D', greenL:'#F0FDF4', red:'#7F1D1D', redL:'#FFF1F2',
+  blue:'#1D4ED8', blueL:'#EFF6FF', violet:'#6D28D9', violetL:'#F5F3FF',
+  amber:'#B45309', amberL:'#FFFBEB',
+  border:'#E2E8F0', white:'#FFFFFF', text:'#0F172A', muted:'#64748B', faint:'#94A3B8', bg:'#F8FAFC',
 }
 
-export default function SKPrograms() {
-  const { user } = useAuth()
-  const [programs, setPrograms] = useState([])
-  const [loading,  setLoading]  = useState(true)
-  const [filter,   setFilter]   = useState('All')
-  const [selected, setSelected] = useState(null)
-  const [showForm, setShowForm] = useState(false)
-  const canManage = user?.role === 'admin' || user?.role === 'sk_officer'
+const peso = n => `₱${Number(n||0).toLocaleString('en-PH')}`
 
-  const [form, setForm] = useState({ title:'', objectives:'', date:'', venue:'', status:'Upcoming', sdgGoal:'', budget:{ allocated:0, spent:0 }, accomplishments:'' })
+const STATUS = {
+  planned:   { label:'Planned',   color:C.amber,  bg:C.amberL  },
+  ongoing:   { label:'Ongoing',   color:C.blue,   bg:C.blueL   },
+  completed: { label:'Completed', color:C.green,  bg:C.greenL  },
+  cancelled: { label:'Cancelled', color:C.red,    bg:C.redL    },
+}
+
+function StatusChip({ status }) {
+  const s = STATUS[status] || STATUS.planned
+  return <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:999, background:s.bg, color:s.color, textTransform:'uppercase', letterSpacing:'0.3px' }}>{s.label}</span>
+}
+
+function ProgressBar({ used, total }) {
+  const pct = total > 0 ? Math.min(100, (used/total)*100) : 0
+  const over = used > total
+  return (
+    <div style={{ marginTop:8 }}>
+      <div style={{ height:6, background:C.bg, borderRadius:999, overflow:'hidden' }}>
+        <div style={{ height:'100%', width:`${pct}%`, background: over ? C.red : pct > 80 ? C.amber : C.green, borderRadius:999, transition:'width 0.3s' }} />
+      </div>
+      <div style={{ display:'flex', justifyContent:'space-between', marginTop:5, fontSize:10, color:C.muted }}>
+        <span>Used: <strong style={{ color: over ? C.red : C.text }}>{peso(used)}</strong></span>
+        <span>Budget: <strong style={{ color:C.text }}>{peso(total)}</strong></span>
+      </div>
+    </div>
+  )
+}
+
+export default function Programs() {
+  const [programs, setPrograms] = useState([])
+  const [selected, setSelected] = useState(null)  // selected program with projects
+  const [loading,  setLoading]  = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [msg,      setMsg]      = useState('')
+
+  const load = async () => {
+    setLoading(true)
+    const r = await axios.get(`${API}/programs`)
+    setPrograms(r.data.programs)
+    setLoading(false)
+  }
 
   useEffect(() => {
-    axios.get(`${API}/programs`)
-      .then(r => setPrograms(r.data.programs))
-      .catch(() => toast.error('Failed to load program.'))
-      .finally(() => setLoading(false))
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const fetchPrograms = () => {
-    axios.get(`${API}/programs`).then(r => setPrograms(r.data.programs)).catch(() => {})
+  const openProgram = async (id) => {
+    const r = await axios.get(`${API}/programs/${id}`)
+    setSelected(r.data)
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    try {
-      await axios.post(`${API}/programs`, form)
-      toast.success('Program added.')
-      setShowForm(false)
-      setForm({ title:'', objectives:'', date:'', venue:'', status:'Upcoming', sdgGoal:'', budget:{allocated:0,spent:0}, accomplishments:'' })
-      fetchPrograms()
-    } catch (err) { toast.error(err.response?.data?.message || 'Error.') }
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
+
+  // ── Program detail view ──
+  if (selected) {
+    return <ProgramDetail data={selected} onBack={() => { setSelected(null); load() }} onChange={() => openProgram(selected.program._id)} flash={flash} msg={msg} />
   }
 
-  const filtered = filter === 'All' ? programs : programs.filter(p => p.status === filter)
-
+  // ── Programs list view ──
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">SK Programs</h1>
-          <p className="page-subtitle">Program and accomplishment tracker</p>
+    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:C.text }}>
+
+      <div style={{ marginBottom:24 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+          <div style={{ width:16, height:3, background:C.gold, borderRadius:2 }} />
+          <span style={{ fontSize:10, fontWeight:700, color:C.gold, letterSpacing:'2px', textTransform:'uppercase' }}>Project Monitoring</span>
         </div>
-        {canManage && (
-          <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
-            <Icon name="plus" size={14} /> Add Program
-          </button>
-        )}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
+          <div>
+            <h1 style={{ fontSize:22, fontWeight:800, color:C.navy, margin:0 }}>Programs</h1>
+            <p style={{ fontSize:12, color:C.muted, marginTop:4 }}>Programs contain projects, projects contain activities. Budget rolls up automatically.</p>
+          </div>
+          <button onClick={() => setShowForm(true)} style={{
+            padding:'9px 16px', background:C.navy, color:C.white, border:'none',
+            borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer',
+          }}>+ New Program</button>
+        </div>
       </div>
 
-      {/* Status filter cards */}
-      <div className="grid-4" style={{ marginBottom: 20 }}>
-        {['All','Upcoming','Ongoing','Completed'].map(s => (
-          <button key={s} onClick={() => setFilter(s)} style={{
-            padding: '14px 16px', borderRadius: 'var(--radius-lg)',
-            border: `1.5px solid ${filter===s ? 'var(--blue-800)' : 'var(--border)'}`,
-            background: filter===s ? 'var(--blue-800)' : 'var(--bg-card)',
-            color: filter===s ? 'white' : 'var(--text-muted)',
-            cursor: 'pointer', transition: 'all var(--transition)',
-          }}>
-            <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1, marginBottom: 3 }}>
-              {s === 'All' ? programs.length : programs.filter(p => p.status === s).length}
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.8 }}>{s}</div>
-          </button>
-        ))}
-      </div>
+      {msg && <div style={{ background:C.greenL, border:`1px solid #BBF7D0`, color:C.green, padding:'10px 16px', borderRadius:6, marginBottom:16, fontSize:13, fontWeight:600 }}>✓ {msg}</div>}
+
+      {showForm && <ProgramForm onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); load(); flash('Program created.') }} />}
 
       {loading ? (
-        <div style={{ display:'flex', justifyContent:'center', padding:48 }}><div className="spinner" /></div>
-      ) : filtered.length === 0 ? (
-        <div className="card">
-          <div className="empty-state">
-            <div className="empty-icon"><Icon name="trophy" size={40} /></div>
-            <div className="empty-title">No Program</div>
-          </div>
+        <div style={{ textAlign:'center', padding:60, color:C.faint }}>Loading programs...</div>
+      ) : programs.length === 0 ? (
+        <div style={{ textAlign:'center', padding:60, background:C.white, border:`1px dashed ${C.border}`, borderRadius:12 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>📋</div>
+          <p style={{ fontSize:14, fontWeight:600, color:C.text, margin:'0 0 4px' }}>No programs yet</p>
+          <p style={{ fontSize:12, color:C.muted, margin:0 }}>Create your first program to start organizing projects and activities.</p>
         </div>
       ) : (
-        <div className="grid-3">
-          {filtered.map(p => {
-            const ss = STATUS_STYLE[p.status] || STATUS_STYLE.Upcoming
-            const pct = p.budget?.allocated > 0 ? Math.min(((p.budget.spent||0)/p.budget.allocated)*100, 100).toFixed(0) : 0
-            return (
-              <div key={p._id} className="card card-hover" onClick={() => setSelected(p)}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                  <span className={`badge ${ss.badge}`}>{p.status}</span>
-                  {p.sdgGoal && <span className="badge badge-green" style={{ fontSize: 10 }}>SDG</span>}
-                </div>
-                <h3 style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-base)', marginBottom: 6 }}>{p.title}</h3>
-                <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 12, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                  {p.objectives}
-                </p>
-                {p.date && <p style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: p.budget?.allocated>0?10:0 }}>
-                  {new Date(p.date).toLocaleDateString('en-PH')}
-                </p>}
-                {p.budget?.allocated > 0 && (
-                  <>
-                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--text-faint)', marginBottom:4 }}>
-                      <span>Budget</span>
-                      <span>₱{(p.budget.spent||0).toLocaleString()} / ₱{p.budget.allocated.toLocaleString()}</span>
-                    </div>
-                    <div className="progress-bar">
-                      <div className="progress-fill" style={{ width:`${pct}%`, background: pct>90?'var(--red-600)':ss.bar }} />
-                    </div>
-                  </>
-                )}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap:16 }}>
+          {programs.map(p => (
+            <div key={p._id} onClick={() => openProgram(p._id)} style={{
+              background:C.white, border:`1px solid ${C.border}`, borderRadius:12,
+              padding:20, cursor:'pointer', transition:'all 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow='0 8px 24px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor=C.navy }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow='none'; e.currentTarget.style.borderColor=C.border }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
+                <span style={{ fontSize:10, fontWeight:700, color:C.violet, background:C.violetL, padding:'3px 10px', borderRadius:999, textTransform:'uppercase', letterSpacing:'0.3px' }}>
+                  {p.category || 'Program'}
+                </span>
+                <StatusChip status={p.status} />
               </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Create Modal */}
-      {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">Add SK Program</span>
-              <button className="modal-close" onClick={() => setShowForm(false)}><Icon name="x" size={14} /></button>
+              <h3 style={{ fontSize:16, fontWeight:700, color:C.text, margin:'0 0 6px' }}>{p.title}</h3>
+              <p style={{ fontSize:12, color:C.muted, margin:'0 0 14px', lineHeight:1.5, minHeight:34 }}>
+                {p.description ? (p.description.length > 90 ? p.description.slice(0,90)+'...' : p.description) : 'No description'}
+              </p>
+              <ProgressBar used={p.totalProjectCost} total={p.totalBudget} />
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:14, paddingTop:14, borderTop:`1px solid ${C.border}`, fontSize:11, color:C.navy, fontWeight:600 }}>
+                View projects & activities →
+              </div>
             </div>
-            <form onSubmit={handleSubmit}>
-              <div className="modal-body">
-                <div className="form-group"><label className="form-label">Program Title</label>
-                  <input className="form-input" required value={form.title} onChange={e=>setForm({...form,title:e.target.value})} /></div>
-                <div className="form-group"><label className="form-label">Objectives</label>
-                  <textarea className="form-textarea" required rows={3} value={form.objectives} onChange={e=>setForm({...form,objectives:e.target.value})} /></div>
-                <div className="grid-2">
-                  <div className="form-group"><label className="form-label">Date</label>
-                    <input type="date" className="form-input" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} /></div>
-                  <div className="form-group"><label className="form-label">Status</label>
-                    <select className="form-select" value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
-                      <option>Upcoming</option><option>Ongoing</option><option>Completed</option><option>Cancelled</option>
-                    </select></div>
-                </div>
-                <div className="form-group"><label className="form-label">Venue</label>
-                  <input className="form-input" value={form.venue} onChange={e=>setForm({...form,venue:e.target.value})} /></div>
-                <div className="grid-2">
-                  <div className="form-group"><label className="form-label">Budget Allocated (₱)</label>
-                    <input type="number" className="form-input" value={form.budget.allocated} onChange={e=>setForm({...form,budget:{...form.budget,allocated:Number(e.target.value)}})} /></div>
-                  <div className="form-group"><label className="form-label">Budget Spent (₱)</label>
-                    <input type="number" className="form-input" value={form.budget.spent} onChange={e=>setForm({...form,budget:{...form.budget,spent:Number(e.target.value)}})} /></div>
-                </div>
-                <div className="form-group"><label className="form-label">SDG Goal (optional)</label>
-                  <input className="form-input" placeholder="e.g. SDG 4: Quality Education" value={form.sdgGoal} onChange={e=>setForm({...form,sdgGoal:e.target.value})} /></div>
-                <div className="form-group"><label className="form-label">Accomplishments</label>
-                  <textarea className="form-textarea" rows={3} value={form.accomplishments} onChange={e=>setForm({...form,accomplishments:e.target.value})} /></div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowForm(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-sm">Save Program</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* View modal */}
-      {selected && (
-        <div className="modal-overlay" onClick={() => setSelected(null)}>
-          <div className="modal-box" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className={`badge ${STATUS_STYLE[selected.status]?.badge}`}>{selected.status}</span>
-              <button className="modal-close" onClick={() => setSelected(null)}><Icon name="x" size={14} /></button>
-            </div>
-            <div className="modal-body">
-              <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 14 }}>{selected.title}</h2>
-              <div className="grid-2" style={{ gap: 10, marginBottom: 16 }}>
-                {[{l:'Date',v:selected.date?new Date(selected.date).toLocaleDateString('en-PH'):'—'},{l:'Venue',v:selected.venue||'—'},{l:'Budget Allocated',v:selected.budget?.allocated?`₱${selected.budget.allocated.toLocaleString()}`:'—'},{l:'Budget Spent',v:selected.budget?.spent?`₱${selected.budget.spent.toLocaleString()}`:'—'},{l:'SDG Goal',v:selected.sdgGoal||'—'},{l:'Status',v:selected.status}].map(i=>(
-                  <div key={i.l} style={{ padding:'9px 11px',background:'var(--bg-subtle)',borderRadius:8,border:'1px solid var(--border)' }}>
-                    <div style={{ fontSize:10,color:'var(--text-faint)',fontWeight:700,marginBottom:3,textTransform:'uppercase',letterSpacing:'0.4px' }}>{i.l}</div>
-                    <div style={{ fontSize:13,fontWeight:600 }}>{i.v}</div>
-                  </div>
-                ))}
-              </div>
-              {selected.objectives && <><p style={{ fontSize:11,color:'var(--text-faint)',fontWeight:700,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.4px' }}>Objectives</p><p style={{ fontSize:13,color:'var(--text-muted)',lineHeight:1.7,marginBottom:14 }}>{selected.objectives}</p></>}
-              {selected.accomplishments && <><p style={{ fontSize:11,color:'var(--text-faint)',fontWeight:700,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.4px' }}>Accomplishments</p><p style={{ fontSize:13,color:'var(--text-muted)',lineHeight:1.7 }}>{selected.accomplishments}</p></>}
-            </div>
-          </div>
+          ))}
         </div>
       )}
     </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROGRAM DETAIL — shows projects and activities
+// ═══════════════════════════════════════════════════════════════════════════════
+function ProgramDetail({ data, onBack, onChange, flash, msg }) {
+  const { program, projects } = data
+  const [showProjForm, setShowProjForm] = useState(false)
+  const [expandedProj, setExpandedProj] = useState(null)
+
+  return (
+    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:C.text }}>
+
+      <button onClick={onBack} style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', fontSize:12, fontWeight:600, color:C.muted, marginBottom:16, padding:0 }}>
+        ← Back to Programs
+      </button>
+
+      {msg && <div style={{ background:C.greenL, border:`1px solid #BBF7D0`, color:C.green, padding:'10px 16px', borderRadius:6, marginBottom:16, fontSize:13, fontWeight:600 }}>✓ {msg}</div>}
+
+      {/* Program header card */}
+      <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:24, marginBottom:20 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
+          <div>
+            <span style={{ fontSize:10, fontWeight:700, color:C.violet, background:C.violetL, padding:'3px 10px', borderRadius:999, textTransform:'uppercase' }}>{program.category}</span>
+            <h1 style={{ fontSize:24, fontWeight:800, color:C.navy, margin:'10px 0 6px' }}>{program.title}</h1>
+            <p style={{ fontSize:13, color:C.muted, margin:0, maxWidth:600, lineHeight:1.5 }}>{program.description}</p>
+          </div>
+          <StatusChip status={program.status} />
+        </div>
+
+        {/* Budget summary */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginTop:20 }}>
+          {[
+            { label:'Total Budget',   value:peso(program.totalBudget),      color:C.navy  },
+            { label:'Allocated Cost', value:peso(program.totalProjectCost), color:C.amber },
+            { label:'Remaining',      value:peso(program.totalBudget - program.totalProjectCost), color:C.green },
+          ].map((s,i) => (
+            <div key={i} style={{ background:C.bg, borderRadius:8, padding:'14px 16px' }}>
+              <div style={{ fontSize:10, fontWeight:600, color:C.muted, textTransform:'uppercase', letterSpacing:'0.4px', marginBottom:4 }}>{s.label}</div>
+              <div style={{ fontSize:18, fontWeight:800, color:s.color }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Fund sources */}
+        {program.fundSources?.length > 0 && (
+          <div style={{ marginTop:16 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:C.muted, textTransform:'uppercase', letterSpacing:'0.4px', marginBottom:8 }}>Fund Sources</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+              {program.fundSources.map((f,i) => (
+                <div key={i} style={{ background:C.greenL, border:`1px solid #BBF7D0`, borderRadius:6, padding:'6px 12px', fontSize:11 }}>
+                  <span style={{ fontWeight:600, color:C.text }}>{f.source}</span>
+                  <span style={{ color:C.green, fontWeight:700, marginLeft:8 }}>{peso(f.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Program progress photos */}
+        <PhotoStrip type="program" id={program._id} photos={program.photos} canEdit={true} onChange={onChange} />
+      </div>
+
+      {/* Projects section */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+        <h2 style={{ fontSize:16, fontWeight:700, color:C.text, margin:0 }}>Projects <span style={{ color:C.faint, fontWeight:600 }}>({projects?.length || 0})</span></h2>
+        <button onClick={() => setShowProjForm(true)} style={{ padding:'8px 14px', background:C.white, color:C.navy, border:`1px solid ${C.navy}`, borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer' }}>+ Add Project</button>
+      </div>
+
+      {showProjForm && <ProjectForm programId={program._id} onClose={() => setShowProjForm(false)} onSaved={() => { setShowProjForm(false); onChange(); flash('Project added.') }} />}
+
+      {(!projects || projects.length === 0) ? (
+        <div style={{ textAlign:'center', padding:40, background:C.white, border:`1px dashed ${C.border}`, borderRadius:12, color:C.faint, fontSize:13 }}>
+          No projects yet. Add your first project to this program.
+        </div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          {projects.map(proj => (
+            <ProjectCard key={proj._id} project={proj} expanded={expandedProj === proj._id}
+              onToggle={() => setExpandedProj(expandedProj === proj._id ? null : proj._id)}
+              onChange={onChange} flash={flash} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Project card with expandable activities ──
+function ProjectCard({ project, expanded, onToggle, onChange, flash }) {
+  const [activities, setActivities] = useState([])
+  const [loaded, setLoaded] = useState(false)
+  const [showActForm, setShowActForm] = useState(false)
+
+  useEffect(() => {
+    if (expanded && !loaded) {
+      axios.get(`${API}/programs/projects/${project._id}/activities`)
+        .then(r => { setActivities(r.data.activities); setLoaded(true) })
+    }
+  }, [expanded, loaded, project._id])
+
+  const reloadActs = () => {
+    axios.get(`${API}/programs/projects/${project._id}/activities`)
+      .then(r => setActivities(r.data.activities))
+  }
+
+  return (
+    <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:10, overflow:'hidden' }}>
+      <div onClick={onToggle} style={{ padding:18, cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+            <span style={{ fontSize:14, transform: expanded ? 'rotate(90deg)' : 'none', transition:'transform 0.2s', color:C.muted }}>▶</span>
+            <h3 style={{ fontSize:15, fontWeight:700, color:C.text, margin:0 }}>{project.title}</h3>
+            <StatusChip status={project.status} />
+          </div>
+          {project.description && <p style={{ fontSize:12, color:C.muted, margin:'0 0 0 24px', lineHeight:1.4 }}>{project.description}</p>}
+        </div>
+        <div style={{ textAlign:'right', minWidth:120 }}>
+          <div style={{ fontSize:10, color:C.muted, fontWeight:600 }}>Activity Cost</div>
+          <div style={{ fontSize:16, fontWeight:800, color:C.navy }}>{peso(project.totalActivityCost)}</div>
+          {project.allocatedBudget > 0 && <div style={{ fontSize:10, color:C.faint }}>of {peso(project.allocatedBudget)}</div>}
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{ borderTop:`1px solid ${C.border}`, background:C.bg, padding:18 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+            <span style={{ fontSize:12, fontWeight:700, color:C.text }}>Activities ({activities.length})</span>
+            <button onClick={() => setShowActForm(true)} style={{ padding:'6px 12px', background:C.white, color:C.navy, border:`1px solid ${C.border}`, borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer' }}>+ Add Activity</button>
+          </div>
+
+          {showActForm && <ActivityForm projectId={project._id} onClose={() => setShowActForm(false)} onSaved={() => { setShowActForm(false); reloadActs(); onChange(); flash('Activity added.') }} />}
+
+          {activities.length === 0 ? (
+            <p style={{ fontSize:12, color:C.faint, textAlign:'center', padding:16 }}>No activities yet.</p>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {activities.map(act => (
+                <div key={act._id} style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:8, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{act.title}</span>
+                      <StatusChip status={act.status} />
+                    </div>
+                    <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>
+                      {act.type} · {act.totalDays} day{act.totalDays>1?'s':''} · {act.totalPoints} pts
+                      {act.venue && ` · ${act.venue}`}
+                    </div>
+                  </div>
+                  <div style={{ textAlign:'right' }}>
+                    <div style={{ fontSize:14, fontWeight:700, color:C.navy }}>{peso(act.estimatedCost)}</div>
+                    <div style={{ fontSize:10, color:C.faint }}>estimated</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FORMS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Photo strip: shows PPA progress photos + upload button ──
+function PhotoStrip({ type, id, photos = [], canEdit, onChange }) {
+  const [uploading, setUploading] = useState(false)
+  const ref = useRef(null)
+
+  const upload = async (file) => {
+    if (!file) return
+    setUploading(true)
+    const fd = new FormData(); fd.append('file', file)
+    try {
+      const { data } = await axios.post(`${API}/upload/photo`, fd, { headers:{'Content-Type':'multipart/form-data'} })
+      await axios.post(`${API}/programs/${type}/${id}/photos`, { url: data.url })
+      onChange && onChange()
+    } catch(e){ alert('Upload failed: '+(e.response?.data?.message||e.message)) }
+    finally { setUploading(false) }
+  }
+
+  const removePhoto = async (photoId) => {
+    if (!confirm('Remove this photo?')) return
+    try { await axios.delete(`${API}/programs/${type}/${id}/photos/${photoId}`); onChange && onChange() }
+    catch{ alert('Failed to remove') }
+  }
+
+  return (
+    <div style={{ marginTop:12 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+        <span style={{ fontSize:11, fontWeight:700, color:C.muted, textTransform:'uppercase', letterSpacing:'0.4px' }}>Progress Photos ({photos.length})</span>
+        {canEdit && (
+          <label style={{ fontSize:11, fontWeight:600, color:C.navy, cursor:'pointer' }}>
+            {uploading?'Uploading…':'+ Add Photo'}
+            <input ref={ref} type="file" accept="image/*" style={{ display:'none' }} onChange={e=>upload(e.target.files[0])} />
+          </label>
+        )}
+      </div>
+      {photos.length === 0
+        ? <div style={{ fontSize:11.5, color:C.faint, fontStyle:'italic', padding:'10px 0' }}>No photos yet. {canEdit && 'Add photos so kabataan can see the progress.'}</div>
+        : <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            {photos.map(p => (
+              <div key={p._id} style={{ position:'relative', width:90, height:90, borderRadius:8, overflow:'hidden', border:`1px solid ${C.border}` }}>
+                <img src={p.url} alt={p.caption||'progress'} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                {canEdit && <button onClick={()=>removePhoto(p._id)} style={{ position:'absolute', top:3, right:3, width:20, height:20, borderRadius:'50%', border:'none', background:'rgba(0,0,0,0.6)', color:'#fff', fontSize:12, cursor:'pointer', lineHeight:1 }}>×</button>}
+              </div>
+            ))}
+          </div>}
+    </div>
+  )
+}
+
+function Modal({ title, children, onClose }) {
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100, padding:20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:C.white, borderRadius:12, width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding:'18px 24px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, background:C.white }}>
+          <h3 style={{ fontSize:16, fontWeight:700, color:C.navy, margin:0 }}>{title}</h3>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.muted, cursor:'pointer', lineHeight:1 }}>×</button>
+        </div>
+        <div style={{ padding:24 }}>{children}</div>
+      </div>
+    </div>
+  )
+}
+
+const field = { width:'100%', padding:'9px 12px', border:`1px solid ${C.border}`, borderRadius:6, fontSize:13, outline:'none', boxSizing:'border-box', fontFamily:'inherit' }
+const lbl   = { fontSize:11, fontWeight:700, color:C.muted, textTransform:'uppercase', letterSpacing:'0.4px', display:'block', marginBottom:5 }
+const btn   = { padding:'10px 20px', background:C.navy, color:C.white, border:'none', borderRadius:6, fontSize:13, fontWeight:700, cursor:'pointer', width:'100%', marginTop:4 }
+
+function ProgramForm({ onClose, onSaved }) {
+  const [f, setF] = useState({ title:'', description:'', category:'Youth Development', status:'planned', startDate:'', endDate:'' })
+  const [funds, setFunds] = useState([{ source:'Barangay Allocation', amount:'' }])
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const fundSources = funds.filter(x => x.source && x.amount).map(x => ({ source:x.source, amount:Number(x.amount) }))
+      await axios.post(`${API}/programs`, { ...f, fundSources })
+      onSaved()
+    } catch(e) { alert(e.response?.data?.message || 'Error') } finally { setSaving(false) }
+  }
+
+  return (
+    <Modal title="New Program" onClose={onClose}>
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        <div><label style={lbl}>Program Title</label><input style={field} value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="e.g. Youth Health & Wellness Program" /></div>
+        <div><label style={lbl}>Description</label><textarea style={{...field, minHeight:70, resize:'vertical'}} value={f.description} onChange={e=>setF({...f,description:e.target.value})} /></div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div><label style={lbl}>Category</label>
+            <select style={field} value={f.category} onChange={e=>setF({...f,category:e.target.value})}>
+              {['Youth Development','Health','Livelihood','Education','Environment','Sports','Peace and Order','Other'].map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div><label style={lbl}>Status</label>
+            <select style={field} value={f.status} onChange={e=>setF({...f,status:e.target.value})}>
+              {['planned','ongoing','completed','cancelled'].map(s=><option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div><label style={lbl}>Start Date</label><input type="date" style={field} value={f.startDate} onChange={e=>setF({...f,startDate:e.target.value})} /></div>
+          <div><label style={lbl}>End Date</label><input type="date" style={field} value={f.endDate} onChange={e=>setF({...f,endDate:e.target.value})} /></div>
+        </div>
+
+        {/* Fund sources */}
+        <div>
+          <label style={lbl}>Fund Sources</label>
+          {funds.map((fund,i) => (
+            <div key={i} style={{ display:'flex', gap:8, marginBottom:8 }}>
+              <input style={{...field, flex:2}} placeholder="Source" value={fund.source} onChange={e=>{ const c=[...funds]; c[i].source=e.target.value; setFunds(c) }} />
+              <input style={{...field, flex:1}} type="number" placeholder="₱ Amount" value={fund.amount} onChange={e=>{ const c=[...funds]; c[i].amount=e.target.value; setFunds(c) }} />
+              {funds.length > 1 && <button onClick={()=>setFunds(funds.filter((_,x)=>x!==i))} style={{ border:'none', background:C.redL, color:C.red, borderRadius:6, padding:'0 12px', cursor:'pointer', fontWeight:700 }}>×</button>}
+            </div>
+          ))}
+          <button onClick={()=>setFunds([...funds,{source:'',amount:''}])} style={{ background:'none', border:`1px dashed ${C.border}`, borderRadius:6, padding:'8px', width:'100%', fontSize:12, color:C.muted, cursor:'pointer', fontWeight:600 }}>+ Add Fund Source</button>
+        </div>
+
+        <button onClick={save} disabled={saving || !f.title} style={{...btn, opacity: saving||!f.title ? 0.6 : 1}}>{saving ? 'Creating...' : 'Create Program'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+function ProjectForm({ programId, onClose, onSaved }) {
+  const [f, setF] = useState({ title:'', description:'', status:'planned', allocatedBudget:'', startDate:'', endDate:'' })
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    setSaving(true)
+    try { await axios.post(`${API}/programs/${programId}/projects`, {...f, allocatedBudget:Number(f.allocatedBudget)||0}); onSaved() }
+    catch(e){ alert(e.response?.data?.message||'Error') } finally { setSaving(false) }
+  }
+  return (
+    <Modal title="Add Project" onClose={onClose}>
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        <div><label style={lbl}>Project Title</label><input style={field} value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="e.g. Community Feeding Program" /></div>
+        <div><label style={lbl}>Description</label><textarea style={{...field,minHeight:60,resize:'vertical'}} value={f.description} onChange={e=>setF({...f,description:e.target.value})} /></div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div><label style={lbl}>Status</label>
+            <select style={field} value={f.status} onChange={e=>setF({...f,status:e.target.value})}>
+              {['planned','ongoing','completed','cancelled'].map(s=><option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+            </select>
+          </div>
+          <div><label style={lbl}>Allocated Budget</label><input type="number" style={field} value={f.allocatedBudget} onChange={e=>setF({...f,allocatedBudget:e.target.value})} placeholder="₱ 0" /></div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div><label style={lbl}>Start Date</label><input type="date" style={field} value={f.startDate} onChange={e=>setF({...f,startDate:e.target.value})} /></div>
+          <div><label style={lbl}>End Date</label><input type="date" style={field} value={f.endDate} onChange={e=>setF({...f,endDate:e.target.value})} /></div>
+        </div>
+        <button onClick={save} disabled={saving||!f.title} style={{...btn, opacity:saving||!f.title?0.6:1}}>{saving?'Adding...':'Add Project'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+function ActivityForm({ projectId, onClose, onSaved }) {
+  const [f, setF] = useState({ title:'', description:'', type:'Meeting', startDate:'', endDate:'', venue:'', estimatedCost:'', pointsPerDay:'' })
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    setSaving(true)
+    try {
+      await axios.post(`${API}/programs/projects/${projectId}/activities`, {
+        ...f, estimatedCost:Number(f.estimatedCost)||0, pointsPerDay:Number(f.pointsPerDay)||0
+      })
+      onSaved()
+    } catch(e){ alert(e.response?.data?.message||'Error') } finally { setSaving(false) }
+  }
+  return (
+    <Modal title="Add Activity" onClose={onClose}>
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        <div><label style={lbl}>Activity Title</label><input style={field} value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="e.g. Distribution of Goods" /></div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div><label style={lbl}>Type</label>
+            <select style={field} value={f.type} onChange={e=>setF({...f,type:e.target.value})}>
+              {['Meeting','Workshop','Community Service','Training','Sports','Health','Livelihood','Other'].map(t=><option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div><label style={lbl}>Venue</label><input style={field} value={f.venue} onChange={e=>setF({...f,venue:e.target.value})} placeholder="Location" /></div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div><label style={lbl}>Start Date</label><input type="date" style={field} value={f.startDate} onChange={e=>setF({...f,startDate:e.target.value})} /></div>
+          <div><label style={lbl}>End Date</label><input type="date" style={field} value={f.endDate} onChange={e=>setF({...f,endDate:e.target.value})} /></div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div><label style={lbl}>Estimated Cost</label><input type="number" style={field} value={f.estimatedCost} onChange={e=>setF({...f,estimatedCost:e.target.value})} placeholder="₱ 0" /></div>
+          <div><label style={lbl}>Points Per Day</label><input type="number" style={field} value={f.pointsPerDay} onChange={e=>setF({...f,pointsPerDay:e.target.value})} placeholder="0" /></div>
+        </div>
+        <p style={{ fontSize:11, color:C.muted, margin:0, background:C.bg, padding:'8px 12px', borderRadius:6 }}>
+          💡 Points are prorated by attendance. If activity is 3 days at 10 pts/day (30 total), attending 2 days earns 20 pts.
+        </p>
+        <button onClick={save} disabled={saving||!f.title||!f.startDate||!f.endDate} style={{...btn, opacity:saving||!f.title||!f.startDate||!f.endDate?0.6:1}}>{saving?'Adding...':'Add Activity'}</button>
+      </div>
+    </Modal>
   )
 }
