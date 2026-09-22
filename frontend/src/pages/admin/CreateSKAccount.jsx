@@ -1,142 +1,98 @@
-// admin/CreateSKAccount.jsx
+// admin/CreateSKAccount.jsx — admin creates SK official accounts
 import { useState } from 'react'
+import { useTheme } from '../../context/theme-utils'
+import { Icon } from '../../components/Icon'
 import axios from 'axios'
+import toast from 'react-hot-toast'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
-
 const DEFAULT_PASSWORD = 'SKManage2026'
 
-const C = {
-  navy:'#0C2340', gold:'#B8860B', goldL:'#FDF8EC',
-  green:'#14532D', greenL:'#F0FDF4', red:'#7F1D1D', redL:'#FFF1F2',
-  border:'#CBD5E1', white:'#FFFFFF', text:'#0F172A', muted:'#64748B',
-  bg:'#F1F5F9',
-}
-
-const SK_ROLES = [
-  { value:'sk_chairperson', label:'SK Chairperson', note:'1 only — full system access' },
-  { value:'sk_secretary',   label:'SK Secretary',   note:'1 only — announcements & documents' },
-  { value:'sk_treasurer',   label:'SK Treasurer',   note:'1 only — financial records' },
-  { value:'sk_kagawad',     label:'SK Kagawad',     note:'Up to 7 — basic SK access' },
+const ROLES = [
+  { value:'sk_chairperson', label:'SK Chairperson', desc:'Full access, approves finances', icon:'shield' },
+  { value:'sk_secretary',   label:'SK Secretary',   desc:'Announcements, meetings, minutes', icon:'clipboardList' },
+  { value:'sk_treasurer',   label:'SK Treasurer',   desc:'Budget and financial records', icon:'banknotes' },
+  { value:'sk_kagawad',     label:'SK Kagawad',     desc:'Council member (up to 7)', icon:'users' },
 ]
 
 export default function CreateSKAccount() {
-  const [form, setForm] = useState({
-    firstName:'', lastName:'', email:'', role:'sk_kagawad',
-  })
-  const [error,   setError]   = useState('')
-  const [success, setSuccess] = useState('')
-  const [loading, setLoading] = useState(false)
+  const { T } = useTheme()
+  const [form,setForm]=useState({ firstName:'', lastName:'', email:'', role:'sk_kagawad' })
+  const [saving,setSaving]=useState(false)
 
   const submit = async (e) => {
     e.preventDefault()
-    setError(''); setSuccess(''); setLoading(true)
+    if(!form.firstName || !form.lastName || !form.email) return toast.error('Please fill all fields.')
+    setSaving(true)
     try {
-      // Password defaults to SKManage2026 — official changes it after first login
-      const payload = { ...form, password: DEFAULT_PASSWORD }
-      const r = await axios.post(`${API}/admin/create-sk`, payload)
-      setSuccess(`✓ ${r.data.message} Default password: ${DEFAULT_PASSWORD}`)
+      const r = await axios.post(`${API}/admin/create-sk`, { ...form, password:DEFAULT_PASSWORD })
+      toast.success(r.data.message || 'Account created.')
       setForm({ firstName:'', lastName:'', email:'', role:'sk_kagawad' })
-    } catch(e) {
-      setError(e.response?.data?.message || 'Something went wrong.')
-    } finally {
-      setLoading(false)
-    }
+    } catch(err) {
+      toast.error(err.response?.data?.message || 'Could not create account.')
+    } finally { setSaving(false) }
   }
 
-  const inp = (label, key, type='text', placeholder='') => (
-    <div>
-      <label style={{ fontSize:11, fontWeight:700, color:C.muted, textTransform:'uppercase', letterSpacing:'0.4px', display:'block', marginBottom:4 }}>
-        {label}
-      </label>
-      <input
-        type={type}
-        value={form[key]}
-        onChange={e => setForm(f => ({...f, [key]:e.target.value}))}
-        placeholder={placeholder}
-        style={{ width:'100%', padding:'9px 12px', border:`1px solid ${C.border}`, borderRadius:6, fontSize:13, outline:'none', boxSizing:'border-box' }}
-      />
-    </div>
-  )
+  const field = { width:'100%', padding:'11px 13px', border:`1px solid ${T.border}`, borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', background:T.surface, color:T.text, fontFamily:'inherit' }
+  const lbl = { fontSize:12, fontWeight:700, color:T.text2, display:'block', marginBottom:7 }
 
   return (
-    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:C.text, maxWidth:560 }}>
-
-      <div style={{ marginBottom:24 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-          <div style={{ width:16, height:3, background:C.gold, borderRadius:2 }} />
-          <span style={{ fontSize:10, fontWeight:700, color:C.gold, letterSpacing:'2px', textTransform:'uppercase' }}>Account Management</span>
-        </div>
-        <h1 style={{ fontSize:22, fontWeight:800, color:C.navy, margin:0 }}>Create SK Account</h1>
-        <p style={{ fontSize:12, color:C.muted, marginTop:4 }}>
-          SK Officials cannot self-register. Create their account here and give them the login credentials.
-        </p>
+    <div style={{ maxWidth:640 }}>
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:T.accentText, textTransform:'uppercase', letterSpacing:'1px', marginBottom:6 }}>User Management</div>
+        <h1 style={{ fontSize:23, fontWeight:800, margin:0, color:T.text, letterSpacing:'-0.5px' }}>Create SK Account</h1>
+        <p style={{ fontSize:13, color:T.text2, margin:'5px 0 0' }}>Issue an account for a Sangguniang Kabataan official.</p>
       </div>
 
-      {error && (
-        <div style={{ background:C.redL, border:`1px solid #FECACA`, color:C.red, padding:'10px 14px', borderRadius:6, marginBottom:16, fontSize:13 }}>
-          {error}
+      <form onSubmit={submit} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:24, boxShadow:T.shadow }}>
+        <div className="cs-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:16 }}>
+          <div><label style={lbl}>First Name</label><input style={field} value={form.firstName} onChange={e=>setForm({...form,firstName:e.target.value})} placeholder="Juan"/></div>
+          <div><label style={lbl}>Last Name</label><input style={field} value={form.lastName} onChange={e=>setForm({...form,lastName:e.target.value})} placeholder="Dela Cruz"/></div>
         </div>
-      )}
-      {success && (
-        <div style={{ background:C.greenL, border:`1px solid #BBF7D0`, color:C.green, padding:'10px 14px', borderRadius:6, marginBottom:16, fontSize:13, fontWeight:600 }}>
-          {success}
+
+        <div style={{ marginBottom:20 }}>
+          <label style={lbl}>Email Address</label>
+          <input type="email" style={field} value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="official@email.com"/>
         </div>
-      )}
 
-      <form onSubmit={submit}>
-        <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:8, overflow:'hidden' }}>
-
-          {/* Role selector */}
-          <div style={{ padding:'16px 20px', borderBottom:`1px solid ${C.border}`, background:'#FAFBFC' }}>
-            <label style={{ fontSize:11, fontWeight:700, color:C.muted, textTransform:'uppercase', letterSpacing:'0.4px', display:'block', marginBottom:10 }}>
-              SK Role
-            </label>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              {SK_ROLES.map(r => (
-                <button key={r.value} type="button" onClick={() => setForm(f=>({...f, role:r.value}))}
-                  style={{
-                    padding:'10px 12px', borderRadius:6, cursor:'pointer', textAlign:'left',
-                    border: form.role === r.value ? `2px solid ${C.navy}` : `1px solid ${C.border}`,
-                    background: form.role === r.value ? C.goldL : C.white,
-                    transition:'all 0.12s',
-                  }}>
-                  <div style={{ fontSize:12, fontWeight:700, color: form.role === r.value ? C.navy : C.text }}>{r.label}</div>
-                  <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{r.note}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Form fields */}
-          <div style={{ padding:20, display:'flex', flexDirection:'column', gap:14 }}>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              {inp('First Name', 'firstName', 'text', 'Juan')}
-              {inp('Last Name',  'lastName',  'text', 'Dela Cruz')}
-            </div>
-            {inp('Email Address', 'email', 'email', 'official@eskmanage.com')}
-
-            {/* Default password note */}
-            <div style={{ background:C.goldL, border:`1px solid #FDE68A`, borderRadius:6, padding:'12px 14px' }}>
-              <p style={{ fontSize:12, color:C.text, margin:'0 0 4px', fontWeight:700 }}>
-                🔑 Default Password: <span style={{ color:C.navy, fontFamily:'monospace' }}>{DEFAULT_PASSWORD}</span>
-              </p>
-              <p style={{ fontSize:11, color:C.muted, margin:0 }}>
-                The official will use this to log in, then change it in their settings. Barangay is automatically set to <strong>Tawiran, Sta. Cruz</strong>.
-              </p>
-            </div>
-
-            <button type="submit" disabled={loading} style={{
-              padding:'11px 20px', background:loading ? C.muted : C.navy,
-              color:C.white, border:'none', borderRadius:6,
-              fontSize:13, fontWeight:700, cursor:loading ? 'not-allowed' : 'pointer',
-              marginTop:4,
-            }}>
-              {loading ? 'Creating...' : 'Create SK Account'}
-            </button>
-          </div>
+        <label style={lbl}>Role</label>
+        <div className="cs-roles" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
+          {ROLES.map(r=>{
+            const sel = form.role===r.value
+            return (
+              <button key={r.value} type="button" onClick={()=>setForm(f=>({...f,role:r.value}))} style={{
+                display:'flex', alignItems:'flex-start', gap:11, padding:'13px 14px', textAlign:'left', cursor:'pointer',
+                borderRadius:11, border: sel?`2px solid ${T.accent}`:`1px solid ${T.border}`,
+                background: sel?T.accentSoft:T.surface, transition:'all 0.12s',
+              }}>
+                <div style={{ width:34, height:34, borderRadius:9, background: sel?T.accent:T.surface2, color: sel?'#fff':T.text2, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <Icon name={r.icon} size={16}/>
+                </div>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{r.label}</div>
+                  <div style={{ fontSize:11, color:T.text3, marginTop:2, lineHeight:1.4 }}>{r.desc}</div>
+                </div>
+              </button>
+            )
+          })}
         </div>
+
+        <div style={{ background:T.amberSoft, border:`1px solid ${T.amber}33`, borderRadius:10, padding:'12px 14px', marginBottom:20, fontSize:12.5, color:T.amber, lineHeight:1.5 }}>
+          <strong>Default password:</strong> {DEFAULT_PASSWORD} — the official should change this after first login.
+        </div>
+
+        <button type="submit" disabled={saving} style={{
+          width:'100%', padding:'13px', border:'none', borderRadius:11, fontSize:14.5, fontWeight:700, cursor: saving?'default':'pointer',
+          background: saving?T.text3:T.accent, color:'#fff',
+        }}>{saving?'Creating…':'Create Account'}</button>
       </form>
+
+      <style>{`
+        @media (max-width: 560px) {
+          .cs-grid { grid-template-columns: 1fr !important; }
+          .cs-roles { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   )
 }

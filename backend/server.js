@@ -32,6 +32,7 @@ app.use(`${BASE_URI}/points`,        require('./routes/pointsRoutes'))
 app.use(`${BASE_URI}/admin`,         require('./routes/adminRoutes'))
 app.use(`${BASE_URI}/finance`,       require('./routes/financeRoutes'))
 app.use(`${BASE_URI}/upload`,        require('./routes/uploadRoutes'))
+app.use(`${BASE_URI}/rewards`,       require('./routes/rewardRoutes'))
 
 app.get('/', (req, res) => {
   res.json({ message: '✅ e-SK Manage API is running' })

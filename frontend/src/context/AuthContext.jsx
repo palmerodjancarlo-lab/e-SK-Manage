@@ -5,7 +5,7 @@ import axios from 'axios'
 const AuthContext = createContext()
 
 // FIXED: must match backend BASE_URI which is /api/v1
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
 
 export const AuthProvider = ({ children }) => {
   const [user,    setUser]    = useState(null)
@@ -14,6 +14,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = useCallback(() => {
     localStorage.removeItem('eskmanage-token')
+    localStorage.removeItem('esk-theme')   // reset to light for next login
     delete axios.defaults.headers.common['Authorization']
     setToken(null)
     setUser(null)
@@ -53,8 +54,33 @@ export const AuthProvider = ({ children }) => {
     return data
   }
 
+  // Verify the emailed code — logs the user in on success
+  const verifyEmail = async (email, code) => {
+    const { data } = await axios.post(`${API}/auth/verify-email`, { email, code })
+    localStorage.setItem('eskmanage-token', data.token)
+    axios.defaults.headers.common['Authorization'] = `Bearer ${data.token}`
+    setToken(data.token)
+    setUser(data.user)
+    return data
+  }
+
+  const resendCode = async (email) => {
+    const { data } = await axios.post(`${API}/auth/resend-code`, { email })
+    return data
+  }
+
+  const forgotPassword = async (email) => {
+    const { data } = await axios.post(`${API}/auth/forgot-password`, { email })
+    return data
+  }
+
+  const resetPassword = async (email, code, newPassword) => {
+    const { data } = await axios.post(`${API}/auth/reset-password`, { email, code, newPassword })
+    return data
+  }
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, setUser, token, loading, login, register, verifyEmail, resendCode, forgotPassword, resetPassword, logout }}>
       {children}
     </AuthContext.Provider>
   )

@@ -3,6 +3,10 @@
 const User     = require('../models/User')
 const AuditLog = require('../models/AuditLog')
 const jwt      = require('jsonwebtoken')
+const { sendVerificationEmail, sendResetEmail } = require('../utils/sendEmail')
+
+// Generate a 6-digit code
+const genCode = () => String(Math.floor(100000 + Math.random() * 900000))
 
 const generateToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' })
@@ -12,10 +16,13 @@ const generateToken = (id) =>
 // SK officials get accounts created by Admin
 const register = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, contactNumber, address } = req.body
+    const { firstName, lastName, email, password, contactNumber, address, purok } = req.body
 
     if (!firstName || !lastName || !email || !password) {
       return res.status(400).json({ message: 'Please fill all required fields.' })
+    }
+    if (!address || !purok) {
+      return res.status(400).json({ message: 'Please provide your purok and complete address in Barangay Tawiran.' })
     }
 
     const exists = await User.findOne({ email })
@@ -23,8 +30,11 @@ const register = async (req, res) => {
       return res.status(400).json({ message: 'Email is already registered.' })
     }
 
-    // Always kabataan — no role injection possible
-    // Municipality and barangay fixed to Tawiran, Sta. Cruz
+    // Generate verification code (valid 10 minutes)
+    const code = genCode()
+    const expires = new Date(Date.now() + 10 * 60 * 1000)
+
+    // Always kabataan — created UNVERIFIED until they enter the emailed code
     const user = await User.create({
       firstName,
       lastName,
@@ -35,26 +45,32 @@ const register = async (req, res) => {
       barangay:     'Tawiran',
       contactNumber: contactNumber || '',
       address:       address || '',
-      isVerified:    true,
-      isActive:      true,
+      purok:         purok || '',
+      isVerified:          false,
+      isActive:            true,
+      verificationCode:    code,
+      verificationExpires: expires,
     })
+
+    // Send the code to their email
+    try {
+      await sendVerificationEmail(user.email, user.firstName, code)
+    } catch (mailErr) {
+      // If email fails, delete the half-created account so they can retry
+      await User.findByIdAndDelete(user._id)
+      return res.status(500).json({ message: 'Could not send verification email. Please check the address and try again.' })
+    }
 
     await AuditLog.create({
       user:    user._id,
       action:  'REGISTER',
-      details: `New kabataan registered: ${email}`,
+      details: `New kabataan registered (pending verification): ${email}`,
     }).catch(() => {})
 
     res.status(201).json({
-      message: 'Account created successfully! You can now sign in.',
-      user: {
-        _id:       user._id,
-        firstName: user.firstName,
-        lastName:  user.lastName,
-        email:     user.email,
-        role:      user.role,
-        barangay:  user.barangay,
-      }
+      message: 'Verification code sent! Check your email.',
+      email:   user.email,
+      needsVerification: true,
     })
   } catch (error) {
     res.status(500).json({ message: error.message })
@@ -77,6 +93,15 @@ const login = async (req, res) => {
 
     if (!user.isActive) {
       return res.status(401).json({ message: 'Your account has been deactivated. Contact your SK Admin.' })
+    }
+
+    // Block unverified kabataan — they must verify their email first
+    if (!user.isVerified) {
+      return res.status(403).json({
+        message: 'Please verify your email first. Check your inbox for the code.',
+        needsVerification: true,
+        email: user.email,
+      })
     }
 
     await AuditLog.create({
@@ -119,7 +144,7 @@ const getProfile = async (req, res) => {
 // @PUT /api/auth/profile
 const updateProfile = async (req, res) => {
   try {
-    const { firstName, lastName, email, contactNumber, address } = req.body
+    const { firstName, lastName, email, contactNumber, address, purok, photo } = req.body
 
     // If email is being changed, make sure it's not already taken by someone else
     if (email) {
@@ -129,8 +154,9 @@ const updateProfile = async (req, res) => {
       }
     }
 
-    const updates = { firstName, lastName, contactNumber, address }
+    const updates = { firstName, lastName, contactNumber, address, purok }
     if (email) updates.email = email
+    if (photo !== undefined) updates.photo = photo
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
@@ -208,7 +234,7 @@ const getMembers = async (req, res) => {
     const { role } = req.query
     const filter = role ? { role } : {}
     const members = await User.find(filter)
-      .select('firstName lastName email role points isActive municipality barangay position photo')
+      .select('firstName lastName email role points isActive municipality barangay position photo address purok contactNumber createdAt')
       .sort({ createdAt: -1 })
     res.json({ users: members })
   } catch (error) {
@@ -216,4 +242,157 @@ const getMembers = async (req, res) => {
   }
 }
 
-module.exports = { register, login, getProfile, updateProfile, changePassword, deleteAccount, getMembers }
+// @POST /api/auth/verify-email
+// User submits the 6-digit code they received
+const verifyEmail = async (req, res) => {
+  try {
+    const { email, code } = req.body
+    if (!email || !code) return res.status(400).json({ message: 'Email and code are required.' })
+
+    const user = await User.findOne({ email }).select('+verificationCode +verificationExpires')
+    if (!user) return res.status(404).json({ message: 'Account not found.' })
+
+    if (user.isVerified) return res.status(400).json({ message: 'This account is already verified. You can sign in.' })
+
+    if (!user.verificationCode || !user.verificationExpires) {
+      return res.status(400).json({ message: 'No code on file. Please request a new one.' })
+    }
+    if (new Date() > user.verificationExpires) {
+      return res.status(400).json({ message: 'Code expired. Please request a new one.' })
+    }
+    if (String(code).trim() !== user.verificationCode) {
+      return res.status(400).json({ message: 'Incorrect code. Please check and try again.' })
+    }
+
+    // Success — mark verified and clear the code
+    user.isVerified = true
+    user.verificationCode = undefined
+    user.verificationExpires = undefined
+    await user.save()
+
+    await AuditLog.create({
+      user: user._id, action: 'VERIFY_EMAIL',
+      details: `${user.email} verified their email`,
+    }).catch(() => {})
+
+    // Log them in right away — return a token
+    res.json({
+      message: 'Email verified! Welcome to e-SK Manage.',
+      token: generateToken(user._id),
+      user: {
+        _id: user._id, firstName: user.firstName, lastName: user.lastName,
+        email: user.email, role: user.role, barangay: user.barangay,
+        points: user.points, isActive: user.isActive,
+      }
+    })
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+// @POST /api/auth/resend-code
+// Resend a fresh code if the first didn't arrive or expired
+const resendCode = async (req, res) => {
+  try {
+    const { email } = req.body
+    if (!email) return res.status(400).json({ message: 'Email is required.' })
+
+    const user = await User.findOne({ email }).select('+verificationCode +verificationExpires')
+    if (!user) return res.status(404).json({ message: 'Account not found.' })
+    if (user.isVerified) return res.status(400).json({ message: 'This account is already verified.' })
+
+    const code = genCode()
+    user.verificationCode = code
+    user.verificationExpires = new Date(Date.now() + 10 * 60 * 1000)
+    await user.save()
+
+    try {
+      await sendVerificationEmail(user.email, user.firstName, code)
+    } catch (mailErr) {
+      return res.status(500).json({ message: 'Could not send the email. Please try again shortly.' })
+    }
+
+    res.json({ message: 'A new code is on the way. Check your email.' })
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+// @POST /api/auth/forgot-password
+// User enters email → we send a 6-digit reset code
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body
+    if (!email) return res.status(400).json({ message: 'Email is required.' })
+
+    const user = await User.findOne({ email: email.trim().toLowerCase() })
+    // For privacy, respond the same whether or not the account exists
+    if (!user) {
+      return res.json({ message: 'If that email is registered, a reset code is on the way.' })
+    }
+
+    const code = genCode()
+    user.resetCode = code
+    user.resetExpires = new Date(Date.now() + 10 * 60 * 1000)
+    await user.save()
+
+    try {
+      await sendResetEmail(user.email, user.firstName, code)
+    } catch (mailErr) {
+      return res.status(500).json({ message: 'Could not send the email. Please try again shortly.' })
+    }
+
+    await AuditLog.create({
+      user: user._id, action: 'FORGOT_PASSWORD',
+      details: `${user.email} requested a password reset`,
+    }).catch(() => {})
+
+    res.json({ message: 'If that email is registered, a reset code is on the way.' })
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+// @POST /api/auth/reset-password
+// User submits: email + code + newPassword
+const resetPassword = async (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ message: 'Email, code, and new password are required.' })
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters.' })
+    }
+
+    const user = await User.findOne({ email: email.trim().toLowerCase() }).select('+resetCode +resetExpires +password')
+    if (!user) return res.status(404).json({ message: 'Account not found.' })
+
+    if (!user.resetCode || !user.resetExpires) {
+      return res.status(400).json({ message: 'No reset request on file. Please start again.' })
+    }
+    if (new Date() > user.resetExpires) {
+      return res.status(400).json({ message: 'Code expired. Please request a new one.' })
+    }
+    if (String(code).trim() !== user.resetCode) {
+      return res.status(400).json({ message: 'Incorrect code. Please check and try again.' })
+    }
+
+    // Set the new password (User model hashes it on save)
+    user.password = newPassword
+    user.resetCode = undefined
+    user.resetExpires = undefined
+    await user.save()
+
+    await AuditLog.create({
+      user: user._id, action: 'RESET_PASSWORD',
+      details: `${user.email} reset their password`,
+    }).catch(() => {})
+
+    res.json({ message: 'Password reset! You can now sign in with your new password.' })
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+module.exports = { register, login, getProfile, updateProfile, changePassword, deleteAccount, getMembers, verifyEmail, resendCode, forgotPassword, resetPassword }

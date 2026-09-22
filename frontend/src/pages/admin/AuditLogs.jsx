@@ -1,113 +1,75 @@
-// admin/AuditLogs.jsx — Full system audit trail
+// admin/AuditLogs.jsx — searchable audit trail
 import { useState, useEffect } from 'react'
+import { useTheme } from '../../context/theme-utils'
+import { Icon } from '../../components/Icon'
 import axios from 'axios'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
 
-const C = {
-  navy:'#0C2340', navyL:'#E8EEF8', gold:'#B8860B', green:'#14532D', greenL:'#F0FDF4',
-  red:'#7F1D1D', redL:'#FFF1F2', amber:'#78350F', amberL:'#FFFBEB',
-  border:'#CBD5E1', white:'#FFFFFF', text:'#0F172A', muted:'#64748B', faint:'#94A3B8', bg:'#F1F5F9',
+const TONE = {
+  LOGIN:'green', REGISTER:'sky', VERIFY_EMAIL:'green', CREATE_SK_ACCOUNT:'accent',
+  RECORD_FUND:'green', RECORD_EXPENSE:'red', APPROVE_EXPENSE:'green', VOID_EXPENSE:'red', VOID_FUND:'red',
+  CREATE_PROGRAM:'violet', CREATE_PROJECT:'sky', CREATE_ACTIVITY:'amber', RECORD_ATTENDANCE:'green',
+  QR_CHECKIN:'green', DELETE_USER:'red', DELETE_PROGRAM:'red', RESET_PASSWORD:'amber', FORGOT_PASSWORD:'amber',
+  TOGGLE_USER:'amber', GENERATE_QR:'sky', BULK_AWARD_POINTS:'violet',
 }
 
-const ACTION_COLOR = {
-  LOGIN:'#14532D', LOGOUT:'#64748B', REGISTER:'#1D4ED8',
-  CREATE_SK_ACCOUNT:'#0C2340', UPDATE_USER:'#1D4ED8', DELETE_USER:'#7F1D1D',
-  TOGGLE_USER:'#78350F', RESET_PASSWORD:'#78350F', CHANGE_PASSWORD:'#78350F',
-  RECORD_FUND:'#14532D', EDIT_FUND:'#78350F', VOID_FUND:'#7F1D1D',
-  RECORD_EXPENSE:'#7F1D1D', APPROVE_EXPENSE:'#14532D', REJECT_EXPENSE:'#7F1D1D', VOID_EXPENSE:'#7F1D1D',
-  CREATE_PROGRAM:'#6D28D9', CREATE_PROJECT:'#1D4ED8', CREATE_ACTIVITY:'#B8860B',
-  RECORD_ATTENDANCE:'#14532D', CREATE_MEETING:'#B8860B',
-}
+export default function AdminAuditLogs() {
+  const { T } = useTheme()
+  const [logs,setLogs]=useState([])
+  const [search,setSearch]=useState('')
+  const [loading,setLoading]=useState(true)
 
-const ROLE_LABEL = {
-  admin:'Admin/IT', sk_chairperson:'SK Chairperson', sk_secretary:'SK Secretary',
-  sk_treasurer:'SK Treasurer', sk_kagawad:'SK Kagawad', kabataan:'Kabataan',
-}
+  useEffect(()=>{
+    axios.get(`${API}/admin/logs`).then(r=>setLogs(r.data.logs||[])).catch(()=>{}).finally(()=>setLoading(false))
+  },[])
 
-export default function AuditLogs() {
-  const [logs,    setLogs]    = useState([])
-  const [search,  setSearch]  = useState('')
-  const [action,  setAction]  = useState('all')
-  const [loading, setLoading] = useState(true)
+  const filtered = logs.filter(l=>
+    search==='' || `${l.details} ${l.user?.firstName} ${l.user?.lastName} ${l.action}`.toLowerCase().includes(search.toLowerCase())
+  )
 
-
-  useEffect(() => {
-    axios.get(`${API}/admin/logs`)
-      .then(r => setLogs(r.data.logs))
-      .catch(console.error)
-      .finally(() => setLoading(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const actions = ['all', ...new Set(logs.map(l => l.action))]
-
-  const filtered = logs.filter(l => {
-    const matchAction = action === 'all' || l.action === action
-    const matchSearch = search === '' ||
-      `${l.details} ${l.user?.firstName} ${l.user?.lastName}`.toLowerCase().includes(search.toLowerCase())
-    return matchAction && matchSearch
-  })
+  const toneColor = (action) => {
+    const key = TONE[action] || 'accent'
+    return { green:T.green, red:T.red, amber:T.amber, sky:T.sky, violet:T.violet, accent:T.accent }[key]
+  }
 
   return (
-    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:C.text }}>
-
-      <div style={{ marginBottom:24 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-          <div style={{ width:16, height:3, background:C.gold, borderRadius:2 }} />
-          <span style={{ fontSize:10, fontWeight:700, color:C.gold, letterSpacing:'2px', textTransform:'uppercase' }}>System Audit</span>
-        </div>
-        <h1 style={{ fontSize:22, fontWeight:800, color:C.navy, margin:0 }}>Audit Trail</h1>
-        <p style={{ fontSize:12, color:C.muted, marginTop:4 }}>Every significant action is logged — who did it, what they did, and when. This ensures full accountability.</p>
+    <div>
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:T.accentText, textTransform:'uppercase', letterSpacing:'1px', marginBottom:6 }}>System</div>
+        <h1 style={{ fontSize:23, fontWeight:800, margin:0, color:T.text, letterSpacing:'-0.5px' }}>Audit Trail</h1>
+        <p style={{ fontSize:13, color:T.text2, margin:'5px 0 0' }}>Every action, attributed and time-stamped for accountability.</p>
       </div>
 
-      {/* Filters */}
-      <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search logs..."
-          style={{ flex:1, minWidth:200, padding:'8px 12px', border:`1px solid ${C.border}`, borderRadius:6, fontSize:12, outline:'none' }} />
-        <select value={action} onChange={e=>setAction(e.target.value)}
-          style={{ padding:'8px 12px', border:`1px solid ${C.border}`, borderRadius:6, fontSize:12, background:C.white, cursor:'pointer' }}>
-          {actions.map(a => <option key={a} value={a}>{a === 'all' ? 'All Actions' : a.replace(/_/g,' ')}</option>)}
-        </select>
-        <div style={{ padding:'8px 14px', background:C.bg, borderRadius:6, fontSize:12, color:C.muted, fontWeight:600, display:'flex', alignItems:'center' }}>
-          {filtered.length} entries
+      <div style={{ display:'flex', gap:12, alignItems:'center', marginBottom:16, flexWrap:'wrap' }}>
+        <div style={{ position:'relative', flex:1, minWidth:200 }}>
+          <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:T.text3 }}><Icon name="search" size={15}/></span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search logs..." style={{
+            width:'100%', padding:'10px 12px 10px 36px', border:`1px solid ${T.border}`, borderRadius:9, fontSize:13.5,
+            outline:'none', background:T.surface, color:T.text, boxSizing:'border-box',
+          }}/>
         </div>
+        <span style={{ fontSize:12, color:T.text3, fontWeight:600 }}>{filtered.length} entries</span>
       </div>
 
-      {/* Timeline */}
-      <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:8, overflow:'hidden' }}>
-        {loading ? (
-          <div style={{ padding:40, textAlign:'center', color:C.faint }}>Loading...</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ padding:40, textAlign:'center', color:C.faint }}>No logs found</div>
-        ) : filtered.map((log, i) => {
-          const color = ACTION_COLOR[log.action] || C.muted
-          return (
-            <div key={log._id} style={{ display:'flex', gap:14, padding:'14px 20px', borderBottom:`1px solid ${C.border}`, background:i%2?'#FAFBFC':C.white }}>
-              <div style={{ paddingTop:3 }}>
-                <div style={{ width:9, height:9, borderRadius:'50%', background:color }} />
-              </div>
+      <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, overflow:'hidden', boxShadow:T.shadow }}>
+        {loading ? <div style={{ padding:50, textAlign:'center', color:T.text3, fontSize:13 }}>Loading…</div>
+          : filtered.length===0 ? <div style={{ padding:50, textAlign:'center', color:T.text3, fontSize:13 }}>No log entries found</div>
+          : filtered.map((log,i)=>(
+            <div key={log._id} style={{ display:'flex', gap:13, padding:'14px 18px', borderBottom: i<filtered.length-1?`1px solid ${T.border}`:'none' }}>
+              <div style={{ width:9, height:9, borderRadius:'50%', background:toneColor(log.action), marginTop:5, flexShrink:0 }}/>
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4, gap:10 }}>
-                  <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:999, background:`${color}18`, color, letterSpacing:'0.3px' }}>
-                    {log.action?.replace(/_/g,' ')}
-                  </span>
-                  <span style={{ fontSize:11, color:C.faint, flexShrink:0 }}>
-                    {new Date(log.createdAt).toLocaleString('en-PH', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}
+                <div style={{ fontSize:13, color:T.text, lineHeight:1.45 }}>{log.details}</div>
+                <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:4, flexWrap:'wrap' }}>
+                  <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:999, background:toneColor(log.action)+'18', color:toneColor(log.action) }}>{log.action}</span>
+                  <span style={{ fontSize:11, color:T.text3 }}>
+                    {log.user && `${log.user.firstName} ${log.user.lastName} · `}
+                    {new Date(log.createdAt).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
                   </span>
                 </div>
-                <p style={{ fontSize:13, color:C.text, margin:'0 0 3px', lineHeight:1.4 }}>{log.details}</p>
-                {log.user && (
-                  <p style={{ fontSize:11, color:C.faint, margin:0 }}>
-                    <strong style={{ color:C.muted }}>{log.user.firstName} {log.user.lastName}</strong>
-                    {' · '}{ROLE_LABEL[log.user.role] || log.user.role}
-                    {log.user.email && ` · ${log.user.email}`}
-                  </p>
-                )}
               </div>
             </div>
-          )
-        })}
+          ))}
       </div>
     </div>
   )

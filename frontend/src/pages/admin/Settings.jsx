@@ -1,153 +1,178 @@
-// admin/Settings.jsx — Admin account settings
+// admin/Settings.jsx — account settings with avatar upload, security, appearance, system
 import { useState, useEffect } from 'react'
-import axios from 'axios'
 import { useAuth } from '../../context/AuthContext'
+import { useTheme } from '../../context/theme-utils'
+import { Icon } from '../../components/Icon'
+import AvatarUploader from '../../components/AvatarUploader'
+import axios from 'axios'
+import toast from 'react-hot-toast'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
 
-const C = {
-  navy:'#0C2340', navyL:'#E8EEF8', gold:'#B8860B', goldL:'#FDF8EC',
-  green:'#14532D', greenL:'#F0FDF4', red:'#7F1D1D', redL:'#FFF1F2',
-  border:'#E2E8F0', white:'#FFFFFF', text:'#0F172A', muted:'#64748B', faint:'#94A3B8', bg:'#F8FAFC',
-}
-
-const field = { width:'100%', padding:'10px 12px', border:`1px solid ${C.border}`, borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box', fontFamily:'inherit' }
-const lbl   = { fontSize:11, fontWeight:700, color:C.muted, textTransform:'uppercase', letterSpacing:'0.4px', display:'block', marginBottom:6 }
-
-function Card({ title, sub, children }) {
-  return (
-    <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', marginBottom:20 }}>
-      <div style={{ padding:'16px 22px', borderBottom:`1px solid ${C.border}`, background:C.bg }}>
-        <div style={{ fontSize:14, fontWeight:700, color:C.text }}>{title}</div>
-        {sub && <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>{sub}</div>}
-      </div>
-      <div style={{ padding:22 }}>{children}</div>
-    </div>
-  )
-}
-
 export default function AdminSettings() {
-  const { user } = useAuth()
-  const [profile, setProfile] = useState({ firstName:'', lastName:'', email:'' })
-  const [pw, setPw] = useState({ currentPassword:'', newPassword:'', confirm:'' })
-  const [msg, setMsg] = useState({ type:'', text:'' })
-  const [saving, setSaving] = useState(false)
+  const { user, setUser } = useAuth()
+  const { T, mode, setMode } = useTheme()
+  const [tab,setTab]=useState('profile')
+  const [profile,setProfile]=useState({ firstName:'', lastName:'', email:'', contactNumber:'', photo:'' })
+  const [pw,setPw]=useState({ currentPassword:'', newPassword:'', confirm:'' })
+  const [saving,setSaving]=useState(false)
 
-  useEffect(() => {
-    if (user) setProfile({ firstName:user.firstName||'', lastName:user.lastName||'', email:user.email||'' })
-  }, [user])
+  useEffect(()=>{ if(user) setProfile({ firstName:user.firstName||'', lastName:user.lastName||'', email:user.email||'', contactNumber:user.contactNumber||'', photo:user.photo||'' }) },[user])
 
-  const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg({ type:'', text:'' }), 4000) }
+  const persistPhoto = async (url) => {
+    setProfile(p=>({ ...p, photo:url }))
+    try {
+      await axios.put(`${API}/auth/profile`, { firstName:profile.firstName, lastName:profile.lastName, email:profile.email, contactNumber:profile.contactNumber, photo:url })
+      if(setUser) setUser(u=>({ ...u, photo:url }))
+    } catch { toast.error('Could not save photo.') }
+  }
 
   const saveProfile = async () => {
     setSaving(true)
     try {
-      await axios.put(`${API}/auth/profile`, { firstName:profile.firstName, lastName:profile.lastName, email:profile.email })
-      flash('success', 'Profile updated successfully.')
-    } catch(e) { flash('error', e.response?.data?.message || 'Update failed.') }
-    finally { setSaving(false) }
+      const { data } = await axios.put(`${API}/auth/profile`, { firstName:profile.firstName, lastName:profile.lastName, email:profile.email, contactNumber:profile.contactNumber, photo:profile.photo })
+      if(setUser && data.user) setUser(data.user)
+      toast.success('Profile updated.')
+    } catch(e){ toast.error(e.response?.data?.message||'Update failed.') } finally { setSaving(false) }
+  }
+  const changePw = async () => {
+    if(pw.newPassword!==pw.confirm) return toast.error('Passwords do not match.')
+    if(pw.newPassword.length<6) return toast.error('Password must be at least 6 characters.')
+    setSaving(true)
+    try { await axios.put(`${API}/auth/change-password`, { currentPassword:pw.currentPassword, newPassword:pw.newPassword }); toast.success('Password changed.'); setPw({currentPassword:'',newPassword:'',confirm:''}) }
+    catch(e){ toast.error(e.response?.data?.message||'Failed.') } finally { setSaving(false) }
   }
 
-  const changePassword = async () => {
-    if (pw.newPassword !== pw.confirm) return flash('error', 'New passwords do not match.')
-    if (pw.newPassword.length < 6) return flash('error', 'Password must be at least 6 characters.')
-    setSaving(true)
-    try {
-      await axios.put(`${API}/auth/change-password`, { currentPassword:pw.currentPassword, newPassword:pw.newPassword })
-      flash('success', 'Password changed successfully.')
-      setPw({ currentPassword:'', newPassword:'', confirm:'' })
-    } catch(e) { flash('error', e.response?.data?.message || 'Password change failed.') }
-    finally { setSaving(false) }
-  }
+  const field = { width:'100%', padding:'11px 13px', border:`1px solid ${T.border}`, borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', background:T.surface, color:T.text, fontFamily:'inherit' }
+  const lbl = { fontSize:12, fontWeight:700, color:T.text2, display:'block', marginBottom:7 }
+
+  const TABS = [
+    { k:'profile', label:'Profile', icon:'user' },
+    { k:'security', label:'Security', icon:'lock' },
+    { k:'appearance', label:'Appearance', icon:'sun' },
+    { k:'system', label:'System', icon:'cog' },
+  ]
 
   return (
-    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:C.text, maxWidth:640 }}>
-
-      <div style={{ marginBottom:24 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-          <div style={{ width:16, height:3, background:C.gold, borderRadius:2 }} />
-          <span style={{ fontSize:10, fontWeight:700, color:C.gold, letterSpacing:'2px', textTransform:'uppercase' }}>Account Settings</span>
-        </div>
-        <h1 style={{ fontSize:22, fontWeight:800, color:C.navy, margin:0 }}>Settings</h1>
-        <p style={{ fontSize:12, color:C.muted, marginTop:4 }}>Manage your administrator account and security.</p>
+    <div style={{ maxWidth:760 }}>
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:T.accentText, textTransform:'uppercase', letterSpacing:'1px', marginBottom:6 }}>System</div>
+        <h1 style={{ fontSize:23, fontWeight:800, margin:0, color:T.text, letterSpacing:'-0.5px' }}>Settings</h1>
+        <p style={{ fontSize:13, color:T.text2, margin:'5px 0 0' }}>Manage your account, security, and preferences.</p>
       </div>
 
-      {msg.text && (
+      {/* Profile banner with live avatar */}
+      <div style={{ background:T.sidebar, borderRadius:14, padding:22, marginBottom:20, display:'flex', alignItems:'center', gap:16 }}>
         <div style={{
-          padding:'12px 16px', borderRadius:8, marginBottom:20, fontSize:13, fontWeight:600,
-          background: msg.type === 'success' ? C.greenL : C.redL,
-          color:      msg.type === 'success' ? C.green  : C.red,
-          border: `1px solid ${msg.type === 'success' ? '#BBF7D0' : '#FECACA'}`,
+          width:60, height:60, borderRadius:16, flexShrink:0,
+          background: profile.photo ? `url(${profile.photo}) center/cover` : 'rgba(255,255,255,0.1)',
+          display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, fontWeight:800, color:'#fff',
         }}>
-          {msg.type === 'success' ? '✓ ' : '⚠ '}{msg.text}
+          {!profile.photo && `${profile.firstName?.[0]||''}${profile.lastName?.[0]||''}`}
+        </div>
+        <div style={{ minWidth:0 }}>
+          <div style={{ fontSize:18, fontWeight:800, color:'#fff', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{profile.firstName} {profile.lastName}</div>
+          <div style={{ fontSize:13, color:'rgba(255,255,255,0.6)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{profile.email}</div>
+          <span style={{ display:'inline-block', marginTop:6, fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:999, background:'rgba(255,255,255,0.15)', color:T.gold, textTransform:'uppercase', letterSpacing:'0.5px' }}>Administrator</span>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:'flex', gap:4, marginBottom:18, borderBottom:`1px solid ${T.border}`, flexWrap:'wrap' }}>
+        {TABS.map(t=>(
+          <button key={t.k} onClick={()=>setTab(t.k)} style={{
+            padding:'10px 14px', border:'none', background:'none', cursor:'pointer', fontSize:13, fontWeight:700,
+            color: tab===t.k?T.accentText:T.text2, borderBottom: tab===t.k?`2px solid ${T.accent}`:'2px solid transparent', marginBottom:-1,
+            display:'flex', alignItems:'center', gap:7,
+          }}><Icon name={t.icon} size={15}/> {t.label}</button>
+        ))}
+      </div>
+
+      {tab==='profile' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          <Section T={T} title="Profile Photo" sub="Add a photo so people recognize you">
+            <AvatarUploader T={T} currentPhoto={profile.photo} name={`${profile.firstName} ${profile.lastName}`} onUploaded={persistPhoto} />
+          </Section>
+
+          <Section T={T} title="Profile Information" sub="Update your name and contact details">
+            <div className="set-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:16 }}>
+              <div><label style={lbl}>First Name</label><input style={field} value={profile.firstName} onChange={e=>setProfile({...profile,firstName:e.target.value})}/></div>
+              <div><label style={lbl}>Last Name</label><input style={field} value={profile.lastName} onChange={e=>setProfile({...profile,lastName:e.target.value})}/></div>
+            </div>
+            <div style={{ marginBottom:16 }}><label style={lbl}>Email Address</label><input type="email" style={field} value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})}/></div>
+            <div style={{ marginBottom:20 }}><label style={lbl}>Contact Number</label><input style={field} value={profile.contactNumber} onChange={e=>setProfile({...profile,contactNumber:e.target.value})} placeholder="09xx-xxx-xxxx"/></div>
+            <button onClick={saveProfile} disabled={saving} style={btn(T,saving)}>{saving?'Saving…':'Save Changes'}</button>
+          </Section>
         </div>
       )}
 
-      {/* Account info banner */}
-      <div style={{ background:`linear-gradient(135deg, ${C.navy}, #1A3A6B)`, borderRadius:12, padding:24, marginBottom:20, color:C.white }}>
-        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-          <div style={{ width:56, height:56, borderRadius:'50%', background:'rgba(255,255,255,0.15)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, fontWeight:700 }}>
-            {profile.firstName?.[0]}{profile.lastName?.[0]}
+      {tab==='security' && (
+        <Section T={T} title="Change Password" sub="Keep your account secure">
+          <div style={{ marginBottom:16 }}><label style={lbl}>Current Password</label><input type="password" style={field} value={pw.currentPassword} onChange={e=>setPw({...pw,currentPassword:e.target.value})}/></div>
+          <div className="set-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:20 }}>
+            <div><label style={lbl}>New Password</label><input type="password" style={field} value={pw.newPassword} onChange={e=>setPw({...pw,newPassword:e.target.value})} placeholder="Min. 6 characters"/></div>
+            <div><label style={lbl}>Confirm New</label><input type="password" style={field} value={pw.confirm} onChange={e=>setPw({...pw,confirm:e.target.value})}/></div>
           </div>
-          <div>
-            <div style={{ fontSize:18, fontWeight:700 }}>{profile.firstName} {profile.lastName}</div>
-            <div style={{ fontSize:12, opacity:0.8, marginTop:2 }}>{profile.email}</div>
-            <span style={{ display:'inline-block', marginTop:6, fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:999, background:C.gold, color:C.white, textTransform:'uppercase', letterSpacing:'0.4px' }}>
-              Administrator / IT Staff
-            </span>
-          </div>
-        </div>
-      </div>
+          <button onClick={changePw} disabled={saving||!pw.currentPassword||!pw.newPassword} style={btn(T,saving||!pw.currentPassword||!pw.newPassword)}>{saving?'Updating…':'Update Password'}</button>
+        </Section>
+      )}
 
-      {/* Profile */}
-      <Card title="Profile Information" sub="Update your name and personal details">
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-            <div><label style={lbl}>First Name</label><input style={field} value={profile.firstName} onChange={e=>setProfile({...profile,firstName:e.target.value})} /></div>
-            <div><label style={lbl}>Last Name</label><input style={field} value={profile.lastName} onChange={e=>setProfile({...profile,lastName:e.target.value})} /></div>
+      {tab==='appearance' && (
+        <Section T={T} title="Appearance" sub="Choose how e-SK Manage looks for you">
+          <div className="set-grid" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            {[{ m:'light', label:'Light', desc:'Bright and clean' },{ m:'dark', label:'Dark', desc:'Easy on the eyes' }].map(opt=>{
+              const sel = mode===opt.m
+              return (
+                <button key={opt.m} onClick={()=>setMode(opt.m)} style={{ padding:16, borderRadius:12, cursor:'pointer', textAlign:'left', border: sel?`2px solid ${T.accent}`:`1px solid ${T.border}`, background: sel?T.accentSoft:T.surface }}>
+                  <div style={{ height:56, borderRadius:8, marginBottom:12, background: opt.m==='dark'?'#0A1017':'#EEF1F6', border:`1px solid ${T.border}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <div style={{ width:'60%', height:20, borderRadius:5, background: opt.m==='dark'?'#121A26':'#fff', border:`1px solid ${opt.m==='dark'?'#202C3C':'#E2E7EE'}` }}/>
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                    <Icon name={opt.m==='dark'?'moon':'sun'} size={15} color={T.text}/>
+                    <span style={{ fontSize:14, fontWeight:700, color:T.text }}>{opt.label}</span>
+                    {sel && <span style={{ marginLeft:'auto', color:T.accent }}><Icon name="check" size={16}/></span>}
+                  </div>
+                  <div style={{ fontSize:11.5, color:T.text3, marginTop:3 }}>{opt.desc}</div>
+                </button>
+              )
+            })}
           </div>
-          <div>
-            <label style={lbl}>Email Address</label>
-            <input type="email" style={field} value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})} placeholder="admin@eskmanage.com" />
-            <p style={{ fontSize:11, color:C.faint, margin:'6px 0 0' }}>This is your login email. Changing it will change how you sign in.</p>
-          </div>
-          <button onClick={saveProfile} disabled={saving} style={{ padding:'10px 20px', background:C.navy, color:C.white, border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer', alignSelf:'flex-start' }}>
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </Card>
+          <p style={{ fontSize:11.5, color:T.text3, margin:'14px 0 0', lineHeight:1.5 }}>Your preference is remembered while you're signed in. Each new sign-in starts in light mode.</p>
+        </Section>
+      )}
 
-      {/* Password */}
-      <Card title="Change Password" sub="Update your password to keep your account secure">
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-          <div><label style={lbl}>Current Password</label><input type="password" style={field} value={pw.currentPassword} onChange={e=>setPw({...pw,currentPassword:e.target.value})} placeholder="Enter current password" /></div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-            <div><label style={lbl}>New Password</label><input type="password" style={field} value={pw.newPassword} onChange={e=>setPw({...pw,newPassword:e.target.value})} placeholder="Min. 6 characters" /></div>
-            <div><label style={lbl}>Confirm New Password</label><input type="password" style={field} value={pw.confirm} onChange={e=>setPw({...pw,confirm:e.target.value})} placeholder="Re-enter new password" /></div>
-          </div>
-          <button onClick={changePassword} disabled={saving || !pw.currentPassword || !pw.newPassword} style={{ padding:'10px 20px', background:C.navy, color:C.white, border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer', alignSelf:'flex-start', opacity: (!pw.currentPassword||!pw.newPassword)?0.6:1 }}>
-            {saving ? 'Updating...' : 'Update Password'}
-          </button>
-        </div>
-      </Card>
-
-      {/* System info */}
-      <Card title="System Information">
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-          {[
-            { label:'System',       value:'e-SK Manage' },
-            { label:'Scope',        value:'Brgy. Tawiran, Sta. Cruz' },
-            { label:'Your Role',    value:'Administrator / IT Staff' },
-            { label:'Version',      value:'2.0.0' },
-          ].map((x,i) => (
-            <div key={i}>
-              <div style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:'uppercase', letterSpacing:'0.4px', marginBottom:3 }}>{x.label}</div>
-              <div style={{ fontSize:13, fontWeight:600, color:C.text }}>{x.value}</div>
+      {tab==='system' && (
+        <Section T={T} title="System Information" sub="About this deployment">
+          {[['Application','e-SK Manage'],['Scope','Barangay Tawiran, Santa Cruz, Marinduque'],['Your Role','Administrator'],['Version','1.0.0']].map(([k,v],i,arr)=>(
+            <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 0', borderBottom: i<arr.length-1?`1px solid ${T.border}`:'none', gap:12 }}>
+              <span style={{ fontSize:13, color:T.text2 }}>{k}</span>
+              <span style={{ fontSize:13, fontWeight:700, color:T.text, textAlign:'right' }}>{v}</span>
             </div>
           ))}
-        </div>
-      </Card>
+        </Section>
+      )}
 
+      <style>{`
+        @media (max-width: 560px) {
+          .set-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   )
 }
+
+function Section({ T, title, sub, children }) {
+  return (
+    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, overflow:'hidden', boxShadow:T.shadow }}>
+      <div style={{ padding:'16px 20px', borderBottom:`1px solid ${T.border}` }}>
+        <div style={{ fontSize:14.5, fontWeight:700, color:T.text }}>{title}</div>
+        {sub && <div style={{ fontSize:12, color:T.text3, marginTop:2 }}>{sub}</div>}
+      </div>
+      <div style={{ padding:20 }}>{children}</div>
+    </div>
+  )
+}
+const btn = (T, disabled) => ({
+  padding:'11px 22px', border:'none', borderRadius:10, fontSize:14, fontWeight:700,
+  cursor: disabled?'default':'pointer', background: disabled?T.text3:T.accent, color:'#fff',
+})

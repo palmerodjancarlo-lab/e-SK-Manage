@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useTheme } from '../../context/ThemeContext'
+import { useTheme } from '../../context/theme-utils'
 import { Icon } from '../../components/Icon'
 import skLogo from '../../assets/sk-logo.png'
 import toast from 'react-hot-toast'
@@ -29,7 +29,9 @@ const ROLE_LABEL = {
 
 export default function SKLayout() {
   const { user, logout }          = useAuth()
-  const { darkMode, toggleTheme } = useTheme()
+  const { mode, toggle } = useTheme()
+  const darkMode = mode === 'dark'
+  const toggleTheme = toggle
   const navigate                  = useNavigate()
   const location                  = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)

@@ -103,10 +103,19 @@ const UserSchema = new mongoose.Schema({
   contactNumber: { type:String, trim:true, default:'' },
   photo:         { type:String, default:'' },
   address:       { type:String, trim:true, default:'' },
+  purok:         { type:String, trim:true, default:'' },  // residency within Tawiran
 
   // Status
   isActive:   { type:Boolean, default:true },
   isVerified: { type:Boolean, default:false },
+
+  // Email verification — 6-digit code sent on registration
+  verificationCode:    { type:String, select:false },
+  verificationExpires: { type:Date,   select:false },
+
+  // Password reset — 6-digit code
+  resetCode:    { type:String, select:false },
+  resetExpires: { type:Date,   select:false },
 
   // Points — for kabataan participation tracking
   points: { type:Number, default:0 },

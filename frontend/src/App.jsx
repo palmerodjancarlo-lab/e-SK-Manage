@@ -2,10 +2,13 @@
 // New roles: admin, sk_chairperson, sk_secretary, sk_treasurer, sk_kagawad, kabataan
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
+import { ThemeProvider } from './context/ThemeContext'
 
 // Auth pages
 import Login    from './pages/auth/Login'
+import Landing        from './pages/Landing'
 import Register from './pages/auth/Register'
+import ForgotPassword from './pages/auth/ForgotPassword'
 
 // Admin Portal
 import AdminLayout      from './components/layout/AdminLayout'
@@ -63,22 +66,15 @@ const ProtectedRoute = ({ children, roles }) => {
   return children
 }
 
-const RootRedirect = () => {
-  const { user, loading } = useAuth()
-  if (loading) return <LoadingScreen />
-  if (!user)                            return <Navigate to="/login" replace />
-  if (user.role === 'admin')            return <Navigate to="/admin/dashboard" replace />
-  if (SK_ROLES.includes(user.role))     return <Navigate to="/sk/dashboard" replace />
-  return <Navigate to="/kabataan" replace />
-}
-
 export default function App() {
   return (
+    <ThemeProvider>
     <Router>
       <Routes>
-        <Route path="/"         element={<RootRedirect />} />
+        <Route path="/"         element={<Landing />} />
         <Route path="/login"    element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
 
         {/* ── ADMIN PORTAL ── */}
         <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminLayout /></ProtectedRoute>}>
@@ -126,5 +122,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
+    </ThemeProvider>
   )
 }

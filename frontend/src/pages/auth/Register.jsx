@@ -1,263 +1,300 @@
-// Register.jsx — Kabataan-only registration
-// Scope fixed to Barangay Tawiran, Santa Cruz, Marinduque
-// SK officials do NOT register — the Admin creates their accounts.
-
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+// auth/Register.jsx — sign up + email verification (6-digit code)
+import { useState, useRef, useEffect } from 'react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { Icon } from '../../components/Icon'
 import toast from 'react-hot-toast'
 import skLogo from '../../assets/sk-logo.png'
+import authBg from '../../assets/auth-bg.svg'
+
+const C = {
+  night:'#1E1B4B', ink:'#0F1F5C', indigo:'#4F46E5', violet:'#7C3AED',
+  gold:'#EAB308', mist:'#F4F6FB', line:'#E7E9F2', slate:'#5A6478', faint:'#93A0B4',
+  rose:'#E11D48', emerald:'#059669',
+}
+const field = { width:'100%', padding:'13px 14px', border:`1.5px solid ${C.line}`, borderRadius:12, fontSize:14.5, outline:'none', boxSizing:'border-box', fontFamily:'inherit', transition:'border 0.15s' }
+const lbl = { fontSize:12.5, fontWeight:700, color:C.ink, display:'block', marginBottom:7 }
+
+const emailLooksValid = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
 
 export default function Register() {
-  const { register }            = useAuth()
-  const navigate                = useNavigate()
-  const [loading, setLoading]   = useState(false)
+  const { register, verifyEmail, resendCode } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const preVerifyEmail = location.state?.verifyEmail
+
+  const [step, setStep] = useState(preVerifyEmail ? 'verify' : 'form')
+  const [loading, setLoading] = useState(false)
   const [showPass, setShowPass] = useState(false)
-  const [showConf, setShowConf] = useState(false)
-  const [form, setForm]         = useState({
-    firstName:'', lastName:'', email:'', password:'', confirmPassword:'', contactNumber:'',
-  })
-  const set = (k,v) => setForm(p=>({...p,[k]:v}))
+  const [form, setForm] = useState({ firstName:'', lastName:'', email:preVerifyEmail||'', purok:'', address:'', password:'', confirm:'' })
+  const [errors, setErrors] = useState({})
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!form.firstName.trim())   return toast.error('First name is required.')
-    if (!form.lastName.trim())    return toast.error('Last name is required.')
-    if (!form.email.trim())       return toast.error('Email is required.')
-    if (form.password.length < 6) return toast.error('Password must be at least 6 characters.')
-    if (form.password !== form.confirmPassword) return toast.error('Passwords do not match.')
+  const validate = () => {
+    const e = {}
+    if (!form.firstName.trim()) e.firstName = 'Required'
+    if (!form.lastName.trim())  e.lastName = 'Required'
+    if (!form.email.trim())     e.email = 'Required'
+    else if (!emailLooksValid(form.email)) e.email = 'Enter a valid email address'
+    if (!form.purok.trim())     e.purok = 'Required'
+    if (!form.address.trim())   e.address = 'Required'
+    if (!form.password)         e.password = 'Required'
+    else if (form.password.length < 6) e.password = 'At least 6 characters'
+    if (form.confirm !== form.password) e.confirm = 'Passwords do not match'
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
 
+  const submitForm = async (ev) => {
+    ev.preventDefault()
+    if (!validate()) return
     setLoading(true)
     try {
       await register({
-        firstName:     form.firstName,
-        lastName:      form.lastName,
-        email:         form.email,
-        password:      form.password,
-        contactNumber: form.contactNumber,
+        firstName: form.firstName.trim(),
+        lastName:  form.lastName.trim(),
+        email:     form.email.trim().toLowerCase(),
+        purok:     form.purok.trim(),
+        address:   form.address.trim(),
+        password:  form.password,
       })
-      toast.success('Account created! You can now sign in.')
-      navigate('/login', { replace:true })
+      toast.success('Code sent! Check your email.')
+      setStep('verify')
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Registration failed.')
-    } finally {
-      setLoading(false)
-    }
+      toast.error(err.response?.data?.message || 'Could not create account.')
+    } finally { setLoading(false) }
   }
-
-  const FEATURES = [
-    { icon:'calendar',  text:'Join SK events and activities' },
-    { icon:'star',      text:'Earn points for participating' },
-    { icon:'gift',      text:'Redeem points for rewards' },
-    { icon:'banknotes', text:'See how SK funds are used' },
-  ]
-
-  const inputStyle = {
-    width:'100%', padding:'12px 16px', border:'1.5px solid #E2E8F0', borderRadius:10,
-    background:'#FAFBFF', color:'#0A1628', fontSize:14, fontFamily:'inherit', outline:'none',
-    transition:'border-color .15s, box-shadow .15s', boxSizing:'border-box',
-  }
-  const onFocus = e => { e.target.style.borderColor='#0F2878'; e.target.style.boxShadow='0 0 0 3px rgba(15,40,120,.08)' }
-  const onBlur  = e => { e.target.style.borderColor='#E2E8F0'; e.target.style.boxShadow='none' }
 
   return (
-    <div style={{ minHeight:'100vh', display:'flex', fontFamily:"'Plus Jakarta Sans',-apple-system,sans-serif", background:'#F4F7FF' }}>
+    <div style={{ minHeight:'100vh', display:'flex', fontFamily:"'Plus Jakarta Sans','Inter',sans-serif" }}>
 
-      {/* ── LEFT PANEL ── */}
-      <div className="auth-left" style={{
-        width:460, flexShrink:0,
-        background:'linear-gradient(160deg, #0A1628 0%, #0F2878 55%, #1535A0 100%)',
-        display:'flex', flexDirection:'column',
-        padding:'48px 52px', position:'relative', overflow:'hidden',
+      <div className="reg-brand" style={{
+        flex:'1 1 46%', background:`url(${authBg}) center/cover, ${C.night}`,
+        color:'#fff', padding:'48px 52px', flexDirection:'column', justifyContent:'space-between', position:'relative', overflow:'hidden',
       }}>
-        {[500,390,285,190,115].map((s,i) => (
-          <div key={i} aria-hidden style={{ position:'absolute', bottom:-s*.48, right:-s*.42, width:s, height:s, borderRadius:'50%', border:`1px solid rgba(255,255,255,${.04+i*.028})`, pointerEvents:'none' }} />
-        ))}
-        <div aria-hidden style={{ position:'absolute', top:-80, left:-80, width:280, height:280, borderRadius:'50%', background:'radial-gradient(circle, rgba(100,140,255,.06) 0%, transparent 70%)', pointerEvents:'none' }} />
-        <div aria-hidden style={{ position:'absolute', bottom:-60, left:40, width:260, height:260, borderRadius:'50%', background:'radial-gradient(circle, rgba(245,196,0,.07) 0%, transparent 65%)', pointerEvents:'none' }} />
-
-        <div style={{ position:'relative', zIndex:1, display:'flex', flexDirection:'column', height:'100%' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:64 }}>
-            <div style={{ width:44, height:44, borderRadius:13, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.18)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <img src={skLogo} alt="SK" style={{ width:28, objectFit:'contain' }} />
-            </div>
-            <div>
-              <p style={{ fontSize:14, fontWeight:800, color:'white', lineHeight:1.2 }}>e-SK Manage</p>
-              <p style={{ fontSize:11, color:'rgba(255,255,255,.35)', marginTop:1 }}>Barangay Tawiran, Santa Cruz</p>
-            </div>
+        <div style={{ position:'absolute', top:-100, right:-80, width:320, height:320, borderRadius:'50%', border:'1px solid rgba(234,179,8,0.15)' }} />
+        <div style={{ position:'relative', display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ width:44, height:44, borderRadius:12, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <img src={skLogo} alt="SK" style={{ width:30, objectFit:'contain' }} />
           </div>
-
-          <div style={{ flex:1 }}>
-            <div style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'5px 12px', background:'rgba(255,255,255,.07)', border:'1px solid rgba(255,255,255,.12)', borderRadius:999, marginBottom:22 }}>
-              <div style={{ width:6, height:6, borderRadius:'50%', background:'#F5C400' }} />
-              <span style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,.65)', letterSpacing:'.3px' }}>Kabataan Registration</span>
-            </div>
-
-            <h1 style={{ fontSize:42, fontWeight:800, color:'white', lineHeight:1.1, letterSpacing:'-1.2px', marginBottom:20 }}>
-              Be part of<br />
-              <span style={{ color:'#F5C400' }}>your</span><br />
-              community.
-            </h1>
-
-            <p style={{ fontSize:13, color:'rgba(255,255,255,.42)', lineHeight:1.9, maxWidth:290, marginBottom:44 }}>
-              Register as a Kabataan member of Barangay Tawiran and start joining SK activities, earning points, and redeeming rewards.
-            </p>
-
-            <div style={{ display:'flex', flexDirection:'column', gap:13 }}>
-              {FEATURES.map(f => (
-                <div key={f.text} style={{ display:'flex', alignItems:'center', gap:13 }}>
-                  <div style={{ width:34, height:34, borderRadius:9, background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                    <Icon name={f.icon} size={14} color="#F5C400" />
-                  </div>
-                  <span style={{ fontSize:13, color:'rgba(255,255,255,.4)', fontWeight:500 }}>{f.text}</span>
-                </div>
-              ))}
-            </div>
+          <div>
+            <div style={{ fontSize:17, fontWeight:800 }}>e-SK Manage</div>
+            <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)' }}>Barangay Tawiran</div>
           </div>
+        </div>
+
+        <div style={{ position:'relative' }}>
+          <h1 style={{ fontSize:34, fontWeight:800, lineHeight:1.15, letterSpacing:'-1px', margin:'0 0 16px' }}>
+            Be part of your<br/><span style={{ color:C.gold }}>youth council.</span>
+          </h1>
+          <p style={{ fontSize:15, color:'rgba(255,255,255,0.78)', lineHeight:1.6, maxWidth:380 }}>
+            Join events, earn points for taking part, and see exactly how your SK serves the barangay.
+          </p>
+          <div style={{ marginTop:28, paddingLeft:16, borderLeft:`3px solid ${C.gold}` }}>
+            <p style={{ fontSize:17, fontWeight:700, color:'#fff', fontStyle:'italic', lineHeight:1.4, margin:0 }}>"Every young voice shapes Tawiran."</p>
+          </div>
+        </div>
+
+        <div style={{ position:'relative', fontSize:12.5, color:'rgba(255,255,255,0.5)' }}>
+          © {new Date().getFullYear()} Sangguniang Kabataan · Santa Cruz, Marinduque
         </div>
       </div>
 
-      {/* ── RIGHT PANEL ── */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', background:'#ffffff', overflowY:'auto' }}>
+      <div style={{ flex:'1 1 54%', background:C.mist, display:'flex', alignItems:'center', justifyContent:'center', padding:'32px 20px' }}>
+        <div style={{ width:'100%', maxWidth:420 }}>
 
-        {/* Mobile header */}
-        <div className="auth-mobile-header">
-          <div style={{ background:'linear-gradient(160deg,#0A1628 0%,#0F2878 55%,#1535A0 100%)', padding:'28px 24px 36px', position:'relative', overflow:'hidden' }}>
-            {[220,150,90].map((s,i) => (
-              <div key={i} aria-hidden style={{ position:'absolute', bottom:-s*.45, right:-s*.4, width:s, height:s, borderRadius:'50%', border:`1px solid rgba(255,255,255,${.06+i*.035})`, pointerEvents:'none' }} />
-            ))}
-            <div style={{ position:'relative', zIndex:1 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:20 }}>
-                <div style={{ width:38, height:38, borderRadius:11, background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  <img src={skLogo} alt="SK" style={{ width:24, objectFit:'contain' }} />
+          <div className="reg-mobile-logo" style={{ display:'none', marginBottom:24 }}>
+            <div style={{ background:`url(${authBg}) center/cover, ${C.night}`, borderRadius:18, padding:'26px 22px', position:'relative', overflow:'hidden' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:11, marginBottom:14 }}>
+                <div style={{ width:44, height:44, borderRadius:12, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
+                  <img src={skLogo} alt="SK" style={{ width:32, objectFit:'contain' }} />
                 </div>
                 <div>
-                  <p style={{ fontSize:14, fontWeight:800, color:'white', lineHeight:1.2 }}>e-SK Manage</p>
-                  <p style={{ fontSize:11, color:'rgba(255,255,255,.38)' }}>Barangay Tawiran</p>
+                  <div style={{ fontSize:16, fontWeight:800, color:'#fff' }}>e-SK Manage</div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)' }}>Barangay Tawiran</div>
                 </div>
               </div>
-              <h1 style={{ fontSize:26, fontWeight:800, color:'white', lineHeight:1.2, letterSpacing:'-.5px', marginBottom:6 }}>
-                Join the <span style={{ color:'#F5C400' }}>Kabataan.</span>
-              </h1>
-              <p style={{ fontSize:12, color:'rgba(255,255,255,.45)', lineHeight:1.7 }}>
-                Register to join SK activities and earn rewards.
-              </p>
+              <p style={{ fontSize:14.5, fontWeight:700, color:'#fff', fontStyle:'italic', lineHeight:1.4, margin:0, borderLeft:`3px solid ${C.gold}`, paddingLeft:12 }}>"Every young voice shapes Tawiran."</p>
             </div>
           </div>
-        </div>
 
-        {/* Form */}
-        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'44px 40px' }} className="auth-form-wrap">
-          <div style={{ width:'100%', maxWidth:420 }}>
-
-            <div className="auth-brand-row" style={{ display:'flex', alignItems:'center', gap:10, marginBottom:32 }}>
-              <img src={skLogo} alt="SK" style={{ width:24, objectFit:'contain' }} />
-              <span style={{ fontSize:15, fontWeight:800, color:'#0A1628', letterSpacing:'-.3px' }}>e-SK Manage</span>
-            </div>
-
-            <h2 style={{ fontSize:26, fontWeight:800, color:'#0A1628', letterSpacing:'-.5px', marginBottom:6 }}>Create your account</h2>
-            <p style={{ fontSize:14, color:'#94A3B8', marginBottom:28, lineHeight:1.5 }}>
-              For Kabataan members of Barangay Tawiran.
-            </p>
-
-            {/* Info note about SK officials */}
-            <div style={{ display:'flex', gap:10, padding:'11px 14px', background:'#FFF9E6', border:'1px solid #FCE8A6', borderRadius:10, marginBottom:24 }}>
-              <Icon name="shield" size={15} color="#B8860B" />
-              <span style={{ fontSize:12, color:'#7A6414', lineHeight:1.5 }}>
-                SK Officials don't register here — the Admin creates your account. This form is for <strong>Kabataan members</strong> only.
-              </span>
-            </div>
-
-            <form onSubmit={handleSubmit}>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16 }}>
-                <div>
-                  <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#475569', marginBottom:8 }}>First name</label>
-                  <input autoFocus required placeholder="Juan" value={form.firstName} onChange={e=>set('firstName',e.target.value)} style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
-                </div>
-                <div>
-                  <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#475569', marginBottom:8 }}>Last name</label>
-                  <input required placeholder="Dela Cruz" value={form.lastName} onChange={e=>set('lastName',e.target.value)} style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
-                </div>
-              </div>
-
-              <div style={{ marginBottom:16 }}>
-                <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#475569', marginBottom:8 }}>Email address</label>
-                <input type="email" required autoComplete="email" placeholder="you@example.com" value={form.email} onChange={e=>set('email',e.target.value)} style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
-              </div>
-
-              <div style={{ marginBottom:16 }}>
-                <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#475569', marginBottom:8 }}>Contact number <span style={{ color:'#CBD5E1', fontWeight:500 }}>(optional)</span></label>
-                <input type="tel" placeholder="09XX XXX XXXX" value={form.contactNumber} onChange={e=>set('contactNumber',e.target.value)} style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
-              </div>
-
-              <div style={{ marginBottom:16 }}>
-                <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#475569', marginBottom:8 }}>Password</label>
-                <div style={{ position:'relative' }}>
-                  <input type={showPass?'text':'password'} required placeholder="At least 6 characters" value={form.password} onChange={e=>set('password',e.target.value)} style={{...inputStyle, paddingRight:48}} onFocus={onFocus} onBlur={onBlur} />
-                  <button type="button" onClick={()=>setShowPass(p=>!p)} style={{ position:'absolute', right:14, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94A3B8', display:'flex', padding:4 }}>
-                    <Icon name={showPass?'eyeOff':'eye'} size={17}/>
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ marginBottom:24 }}>
-                <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#475569', marginBottom:8 }}>Confirm password</label>
-                <div style={{ position:'relative' }}>
-                  <input type={showConf?'text':'password'} required placeholder="Re-enter your password" value={form.confirmPassword} onChange={e=>set('confirmPassword',e.target.value)} style={{...inputStyle, paddingRight:48}} onFocus={onFocus} onBlur={onBlur} />
-                  <button type="button" onClick={()=>setShowConf(p=>!p)} style={{ position:'absolute', right:14, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94A3B8', display:'flex', padding:4 }}>
-                    <Icon name={showConf?'eyeOff':'eye'} size={17}/>
-                  </button>
-                </div>
-              </div>
-
-              <button type="submit" disabled={loading} style={{
-                width:'100%', padding:'13px', background:loading?'#64748B':'#0A1628',
-                border:'none', borderRadius:11, color:'white', fontSize:15, fontWeight:700,
-                fontFamily:'inherit', cursor:loading?'not-allowed':'pointer',
-                display:'flex', alignItems:'center', justifyContent:'center', gap:8,
-                transition:'all .2s', boxShadow:loading?'none':'0 4px 16px rgba(10,22,40,.22)',
-              }}
-              onMouseEnter={e=>{ if(!loading){ e.currentTarget.style.background='#0F2878'; e.currentTarget.style.transform='translateY(-1px)' }}}
-              onMouseLeave={e=>{ e.currentTarget.style.background=loading?'#64748B':'#0A1628'; e.currentTarget.style.transform='none' }}>
-                {loading
-                  ? <><div style={{ width:16,height:16,borderRadius:'50%',border:'2px solid rgba(255,255,255,.3)',borderTopColor:'white',animation:'spin .65s linear infinite' }}/> Creating account...</>
-                  : 'Create account'}
-              </button>
-            </form>
-
-            <div style={{ display:'flex', alignItems:'center', gap:12, margin:'24px 0' }}>
-              <div style={{ flex:1, height:1, background:'#E2E8F0' }} />
-              <span style={{ fontSize:12, color:'#CBD5E1', fontWeight:500 }}>or</span>
-              <div style={{ flex:1, height:1, background:'#E2E8F0' }} />
-            </div>
-
-            <Link to="/login" style={{
-              display:'flex', alignItems:'center', justifyContent:'center', gap:8,
-              width:'100%', padding:'13px', border:'1.5px solid #E2E8F0',
-              borderRadius:11, background:'white', color:'#0A1628',
-              fontSize:14, fontWeight:600, textDecoration:'none',
-              transition:'all .15s', boxSizing:'border-box',
-            }}
-            onMouseEnter={e=>{ e.currentTarget.style.borderColor='#0F2878'; e.currentTarget.style.background='#F4F7FF' }}
-            onMouseLeave={e=>{ e.currentTarget.style.borderColor='#E2E8F0'; e.currentTarget.style.background='white' }}>
-              Already have an account? <strong style={{ color:'#0F2878' }}>Sign in</strong>
-            </Link>
-          </div>
+          {step === 'form' ? (
+            <FormStep {...{ form, setForm, errors, showPass, setShowPass, loading, submitForm }} />
+          ) : (
+            <VerifyStep email={form.email.trim().toLowerCase()} firstName={form.firstName}
+              verifyEmail={verifyEmail} resendCode={resendCode} navigate={navigate}
+              onBack={()=>setStep('form')} />
+          )}
         </div>
       </div>
 
       <style>{`
-        @keyframes spin { to { transform:rotate(360deg) } }
-        .auth-mobile-header { display:none }
-        @media (max-width:768px) {
-          .auth-left { display:none !important }
-          .auth-mobile-header { display:block !important }
-          .auth-brand-row { display:none !important }
-          .auth-form-wrap { padding:28px 24px !important; align-items:flex-start !important }
+        .reg-brand { display:flex; }
+        @media (max-width:820px) {
+          .reg-brand { display:none; }
+          .reg-mobile-logo { display:block !important; }
         }
-        input::placeholder { color:#CBD5E1 }
       `}</style>
     </div>
+  )
+}
+
+function FormStep({ form, setForm, errors, showPass, setShowPass, loading, submitForm }) {
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  const err = (k) => errors[k] && <p style={{ fontSize:11.5, color:C.rose, margin:'5px 0 0', fontWeight:600 }}>{errors[k]}</p>
+  const bd = (k) => ({ ...field, borderColor: errors[k] ? C.rose : C.line })
+
+  return (
+    <>
+      <h2 style={{ fontSize:26, fontWeight:800, color:C.ink, margin:'0 0 6px', letterSpacing:'-0.5px' }}>Create your account</h2>
+      <p style={{ fontSize:14, color:C.slate, margin:'0 0 26px' }}>For kabataan of Barangay Tawiran.</p>
+
+      <form onSubmit={submitForm} noValidate>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16 }}>
+          <div>
+            <label style={lbl}>First name</label>
+            <input style={bd('firstName')} value={form.firstName} onChange={set('firstName')} placeholder="Juan" />
+            {err('firstName')}
+          </div>
+          <div>
+            <label style={lbl}>Last name</label>
+            <input style={bd('lastName')} value={form.lastName} onChange={set('lastName')} placeholder="Dela Cruz" />
+            {err('lastName')}
+          </div>
+        </div>
+
+        <div style={{ marginBottom:16 }}>
+          <label style={lbl}>Email address</label>
+          <input type="email" style={bd('email')} value={form.email} onChange={set('email')} placeholder="you@email.com" />
+          {errors.email ? err('email') : <p style={{ fontSize:11.5, color:C.faint, margin:'5px 0 0' }}>We'll send a verification code here.</p>}
+        </div>
+
+        <div style={{ background:'#F4F6FB', borderRadius:12, padding:14, marginBottom:16, border:`1px solid ${C.line}` }}>
+          <div style={{ fontSize:11.5, fontWeight:700, color:C.ink, marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
+            📍 Residency in Barangay Tawiran
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label style={lbl}>Purok / Sitio</label>
+            <input style={bd('purok')} value={form.purok} onChange={set('purok')} placeholder="e.g. Purok 1" />
+            {err('purok')}
+          </div>
+          <div>
+            <label style={lbl}>Complete Address</label>
+            <input style={bd('address')} value={form.address} onChange={set('address')} placeholder="House no., street, Brgy. Tawiran" />
+            {err('address')}
+          </div>
+          <p style={{ fontSize:10.5, color:C.faint, margin:'8px 0 0', lineHeight:1.5 }}>This portal is for the youth of Barangay Tawiran only. Your details help the SK verify residency.</p>
+        </div>
+
+        <div style={{ marginBottom:16 }}>
+          <label style={lbl}>Password</label>
+          <div style={{ position:'relative' }}>
+            <input type={showPass?'text':'password'} style={bd('password')} value={form.password} onChange={set('password')} placeholder="At least 6 characters" />
+            <button type="button" onClick={()=>setShowPass(!showPass)} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', fontSize:12.5, color:C.indigo, fontWeight:700, cursor:'pointer' }}>{showPass?'Hide':'Show'}</button>
+          </div>
+          {err('password')}
+        </div>
+
+        <div style={{ marginBottom:24 }}>
+          <label style={lbl}>Confirm password</label>
+          <input type={showPass?'text':'password'} style={bd('confirm')} value={form.confirm} onChange={set('confirm')} placeholder="Re-enter password" />
+          {err('confirm')}
+        </div>
+
+        <button type="submit" disabled={loading} style={{
+          width:'100%', padding:'14px', background: loading ? C.faint : `linear-gradient(135deg,${C.indigo},${C.violet})`,
+          color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor: loading ? 'default' : 'pointer',
+          boxShadow: loading ? 'none' : '0 8px 22px rgba(79,70,229,0.3)',
+        }}>{loading ? 'Sending code…' : 'Create account'}</button>
+      </form>
+
+      <p style={{ textAlign:'center', fontSize:13.5, color:C.slate, margin:'22px 0 0' }}>
+        Already have an account? <Link to="/login" style={{ color:C.indigo, fontWeight:700, textDecoration:'none' }}>Sign in</Link>
+      </p>
+    </>
+  )
+}
+
+function VerifyStep({ email, verifyEmail, resendCode, navigate, onBack }) {
+  const [digits, setDigits] = useState(['','','','','',''])
+  const [loading, setLoading] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
+  const inputs = useRef([])
+
+  useEffect(() => { inputs.current[0]?.focus() }, [])
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const t = setTimeout(() => setCooldown(cooldown - 1), 1000)
+    return () => clearTimeout(t)
+  }, [cooldown])
+
+  const code = digits.join('')
+
+  const setDigit = (i, val) => {
+    const v = val.replace(/\D/g, '').slice(-1)
+    const next = [...digits]; next[i] = v; setDigits(next)
+    if (v && i < 5) inputs.current[i+1]?.focus()
+  }
+  const onKey = (i, e) => {
+    if (e.key === 'Backspace' && !digits[i] && i > 0) inputs.current[i-1]?.focus()
+  }
+  const onPaste = (e) => {
+    e.preventDefault()
+    const p = e.clipboardData.getData('text').replace(/\D/g,'').slice(0,6).split('')
+    if (p.length) { const next = ['','','','','','']; p.forEach((d,i)=>next[i]=d); setDigits(next); inputs.current[Math.min(p.length,5)]?.focus() }
+  }
+
+  const submit = async () => {
+    if (code.length !== 6) return toast.error('Enter the full 6-digit code.')
+    setLoading(true)
+    try {
+      await verifyEmail(email, code)
+      toast.success('Verified! Welcome 🎉')
+      navigate('/kabataan', { replace:true })
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Verification failed.')
+      setDigits(['','','','','','']); inputs.current[0]?.focus()
+    } finally { setLoading(false) }
+  }
+
+  const resend = async () => {
+    if (cooldown > 0) return
+    try { await resendCode(email); toast.success('New code sent!'); setCooldown(30) }
+    catch (err) { toast.error(err.response?.data?.message || 'Could not resend.') }
+  }
+
+  return (
+    <>
+      <button onClick={onBack} style={{ background:'none', border:'none', color:C.slate, fontSize:13, fontWeight:600, cursor:'pointer', padding:0, marginBottom:20 }}>← Back</button>
+
+      <div style={{ width:56, height:56, borderRadius:16, background:'#EEF0FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, marginBottom:18 }}>📧</div>
+      <h2 style={{ fontSize:24, fontWeight:800, color:C.ink, margin:'0 0 8px', letterSpacing:'-0.5px' }}>Check your email</h2>
+      <p style={{ fontSize:14, color:C.slate, margin:'0 0 4px', lineHeight:1.6 }}>We sent a 6-digit code to</p>
+      <p style={{ fontSize:14, color:C.ink, fontWeight:700, margin:'0 0 26px' }}>{email}</p>
+
+      <div style={{ display:'flex', gap:8, marginBottom:22, justifyContent:'space-between' }} onPaste={onPaste}>
+        {digits.map((d, i) => (
+          <input key={i} ref={el=>inputs.current[i]=el} value={d} inputMode="numeric" maxLength={1}
+            onChange={e=>setDigit(i, e.target.value)} onKeyDown={e=>onKey(i, e)}
+            style={{
+              width:'100%', aspectRatio:'1', maxWidth:52, textAlign:'center', fontSize:24, fontWeight:800,
+              border:`1.5px solid ${d ? C.indigo : C.line}`, borderRadius:12, outline:'none', color:C.ink,
+              background: d ? '#F5F7FF' : '#fff', transition:'all 0.15s',
+            }} />
+        ))}
+      </div>
+
+      <button onClick={submit} disabled={loading || code.length !== 6} style={{
+        width:'100%', padding:'14px', border:'none', borderRadius:12, fontSize:15, fontWeight:700,
+        cursor: (loading || code.length !== 6) ? 'default' : 'pointer',
+        background: (loading || code.length !== 6) ? C.faint : `linear-gradient(135deg,${C.indigo},${C.violet})`,
+        color:'#fff', boxShadow: (loading || code.length !== 6) ? 'none' : '0 8px 22px rgba(79,70,229,0.3)',
+      }}>{loading ? 'Verifying…' : 'Verify & continue'}</button>
+
+      <p style={{ textAlign:'center', fontSize:13.5, color:C.slate, margin:'22px 0 0' }}>
+        Didn't get it?{' '}
+        <button onClick={resend} disabled={cooldown>0} style={{ background:'none', border:'none', color: cooldown>0 ? C.faint : C.indigo, fontWeight:700, cursor: cooldown>0?'default':'pointer', fontFamily:'inherit', fontSize:13.5 }}>
+          {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}
+        </button>
+      </p>
+    </>
   )
 }
