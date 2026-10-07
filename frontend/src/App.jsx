@@ -1,127 +1,121 @@
-// App.jsx — e-SK Manage router
-// New roles: admin, sk_chairperson, sk_secretary, sk_treasurer, sk_kagawad, kabataan
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from './context/AuthContext'
-import { ThemeProvider } from './context/ThemeContext'
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './context/auth-store';
+import { HEAD_ROLES, OFFICER_ROLES, ROLES, homePath } from './lib/roles';
+import FullScreenLoader from './components/layout/FullScreenLoader';
+import PublicOnly from './components/routing/PublicOnly';
+import ProtectedRoute from './components/routing/ProtectedRoute';
+import Landing from './pages/Landing';
+import Login from './pages/auth/Login';
+import Register from './pages/auth/Register';
+import VerifyEmail from './pages/auth/VerifyEmail';
+import ForgotPassword from './pages/auth/ForgotPassword';
 
-// Auth pages
-import Login    from './pages/auth/Login'
-import Landing        from './pages/Landing'
-import Register from './pages/auth/Register'
-import ForgotPassword from './pages/auth/ForgotPassword'
+// Head Console
+import AdminLayout from './components/layout/AdminLayout';
+import AdminDashboard from './pages/admin/Dashboard';
+import AdminAnnouncements from './pages/admin/Announcements';
+import AdminMeetings from './pages/admin/Meetings';
+import AdminPrograms from './pages/admin/Programs';
+import AdminFinance from './pages/admin/Finance';
+import AdminRewards from './pages/admin/Rewards';
+import AdminUsers from './pages/admin/Users';
+import CreateSK from './pages/admin/CreateSK';
+import AdminAudit from './pages/admin/Audit';
+import AdminSettings from './pages/admin/Settings';
+import BudgetBreakdown from './pages/admin/BudgetBreakdown';
 
-// Admin Portal
-import AdminLayout      from './components/layout/AdminLayout'
-import AdminDashboard   from './pages/admin/Dashboard'
-import AdminUsers       from './pages/admin/Users'
-import CreateSKAccount  from './pages/admin/CreateSKAccount'
-import AdminFinance     from './pages/admin/Finance'
-import AdminAuditLogs   from './pages/admin/AuditLogs'
-import AdminSettings    from './pages/admin/Settings'
-// Admin reuses SK content pages
-import AdminAnnouncements from './pages/sk/Announcements'
-import AdminMeetings      from './pages/sk/Meetings'
-import AdminPrograms      from './pages/sk/Programs'
+// SK Officers
+import SKLayout from './components/layout/SKLayout';
+import SKDashboard from './pages/sk/Dashboard';
+import SKFinance from './pages/sk/Finance';
+import SKMembers from './pages/sk/Members';
+import SKPrograms from './pages/sk/Programs';
+import SKRewards from './pages/sk/Rewards';
+import SKAnnouncements from './pages/sk/Announcements';
+import SKMeetings from './pages/sk/Meetings';
+import AbyipReport from './pages/sk/AbyipReport';
+import CbydpReport from './pages/sk/CbydpReport';
+import AccomplishmentReport from './pages/sk/AccomplishmentReport';
+import ReportsHub from './pages/sk/ReportsHub';
+import SKSettings from './pages/sk/Settings';
 
-// SK Portal (all SK officials share, filtered by role inside)
-import SKLayout        from './components/layout/SKLayout'
-import SKDashboard     from './pages/sk/Dashboard'
-import SKAnnouncements from './pages/sk/Announcements'
-import SKMembers       from './pages/sk/Members'
-import SKMeetings      from './pages/sk/Meetings'
-import SKPrograms      from './pages/sk/Programs'
-import SKFinance       from './pages/sk/Finance'
-import SKRewards       from './pages/sk/Rewards'
-import SKOfficials     from './pages/sk/Officials'
-import SKSettings      from './pages/sk/Settings'
+// Kabataan
+import KabataanLayout from './components/layout/KabataanLayout';
+import KabHome from './pages/kabataan/Home';
+import KabEvents from './pages/kabataan/Events';
+import KabRewards from './pages/kabataan/Rewards';
+import KabBudget from './pages/kabataan/Budget';
+import KabSKBoard from './pages/kabataan/SKBoard';
+import KabProfile from './pages/kabataan/Profile';
+import KabPrograms from './pages/kabataan/Programs';
 
-// Kabataan Portal
-import KabataanLayout        from './components/layout/KabataanLayout'
-import KabataanHome          from './pages/kabataan/Home'
-import KabataanAnnouncements from './pages/kabataan/Announcements'
-import KabataanPrograms      from './pages/kabataan/Programs'
-import KabataanTransparency  from './pages/kabataan/Transparency'
-import KabataanOfficials     from './pages/kabataan/Officials'
-import KabataanPoints        from './pages/kabataan/Points'
-import KabataanRewards       from './pages/kabataan/Rewards'
-import KabataanMeetings      from './pages/kabataan/Meetings'
-import KabataanSettings      from './pages/kabataan/Settings'
-import CheckIn               from './pages/kabataan/CheckIn'
-
-// SK role group
-const SK_ROLES = ['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']
-
-const LoadingScreen = () => (
-  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', flexDirection:'column', gap:16, background:'var(--bg)' }}>
-    <div className="spinner" style={{ width:36, height:36 }} />
-    <p style={{ color:'var(--blue-800)', fontWeight:600, fontSize:14 }}>Loading e-SK Manage...</p>
-  </div>
-)
-
-const ProtectedRoute = ({ children, roles }) => {
-  const { user, loading } = useAuth()
-  if (loading) return <LoadingScreen />
-  if (!user) return <Navigate to="/login" replace />
-  if (roles && !roles.includes(user.role)) return <Navigate to="/login" replace />
-  return children
+function RootRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={user ? homePath(user.role) : '/login'} replace />;
 }
 
 export default function App() {
+  const { loading } = useAuth();
+  if (loading) return <FullScreenLoader />;
+
   return (
-    <ThemeProvider>
-    <Router>
-      <Routes>
-        <Route path="/"         element={<Landing />} />
-        <Route path="/login"    element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
+    <Routes>
+      {/* Public */}
+      <Route path="/" element={<Landing />} />
+      <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+      <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
+      <Route path="/verify" element={<PublicOnly><VerifyEmail /></PublicOnly>} />
+      <Route path="/forgot-password" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
 
-        {/* ── ADMIN PORTAL ── */}
-        <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminLayout /></ProtectedRoute>}>
-          <Route index                element={<Navigate to="/admin/dashboard" replace />} />
-          <Route path="dashboard"     element={<AdminDashboard />} />
-          <Route path="users"         element={<AdminUsers />} />
-          <Route path="create-sk"     element={<CreateSKAccount />} />
-          <Route path="finance"       element={<AdminFinance />} />
-          <Route path="logs"          element={<AdminAuditLogs />} />
-          <Route path="settings"      element={<AdminSettings />} />
-          <Route path="announcements" element={<AdminAnnouncements />} />
-          <Route path="meetings"      element={<AdminMeetings />} />
-          <Route path="programs"      element={<AdminPrograms />} />
-        </Route>
+      {/* Head Console (chairperson / legacy admin) */}
+      <Route path="/admin" element={<ProtectedRoute allow={HEAD_ROLES}><AdminLayout /></ProtectedRoute>}>
+        <Route index element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="dashboard" element={<AdminDashboard />} />
+        <Route path="announcements" element={<AdminAnnouncements />} />
+        <Route path="meetings" element={<AdminMeetings />} />
+        <Route path="programs" element={<AdminPrograms />} />
+        <Route path="finance" element={<AdminFinance />} />
+        <Route path="rewards" element={<AdminRewards />} />
+        <Route path="users" element={<AdminUsers />} />
+        <Route path="create-sk" element={<CreateSK />} />
+        <Route path="logs" element={<AdminAudit />} />
+        <Route path="settings" element={<AdminSettings />} />
+        <Route path="budget" element={<BudgetBreakdown />} />
+        <Route path="reports" element={<ReportsHub />} />
+        <Route path="reports/abyip" element={<AbyipReport />} />
+        <Route path="reports/cbydp" element={<CbydpReport />} />
+        <Route path="reports/accomplishment" element={<AccomplishmentReport />} />
+      </Route>
 
-        {/* ── SK PORTAL (all SK officials) ── */}
-        <Route path="/sk" element={<ProtectedRoute roles={SK_ROLES}><SKLayout /></ProtectedRoute>}>
-          <Route index                element={<Navigate to="/sk/dashboard" replace />} />
-          <Route path="dashboard"     element={<SKDashboard />} />
-          <Route path="announcements" element={<SKAnnouncements />} />
-          <Route path="members"       element={<SKMembers />} />
-          <Route path="meetings"      element={<SKMeetings />} />
-          <Route path="programs"      element={<SKPrograms />} />
-          <Route path="finance"       element={<SKFinance />} />
-          <Route path="rewards"       element={<SKRewards />} />
-          <Route path="officials"     element={<SKOfficials />} />
-          <Route path="settings"      element={<SKSettings />} />
-        </Route>
+      {/* SK Officers */}
+      <Route path="/sk" element={<ProtectedRoute allow={OFFICER_ROLES}><SKLayout /></ProtectedRoute>}>
+        <Route index element={<SKDashboard />} />
+        <Route path="announcements" element={<SKAnnouncements />} />
+        <Route path="meetings" element={<SKMeetings />} />
+        <Route path="finance" element={<SKFinance />} />
+        <Route path="programs" element={<SKPrograms />} />
+        <Route path="rewards" element={<SKRewards />} />
+        <Route path="members" element={<SKMembers />} />
+        <Route path="reports" element={<ReportsHub />} />
+        <Route path="reports/abyip" element={<AbyipReport />} />
+        <Route path="reports/cbydp" element={<CbydpReport />} />
+        <Route path="reports/accomplishment" element={<AccomplishmentReport />} />
+        <Route path="settings" element={<SKSettings />} />
+      </Route>
 
-        {/* ── KABATAAN PORTAL ── */}
-        <Route path="/kabataan" element={<ProtectedRoute roles={['kabataan']}><KabataanLayout /></ProtectedRoute>}>
-          <Route index                element={<KabataanHome />} />
-          <Route path="announcements" element={<KabataanAnnouncements />} />
-          <Route path="programs"      element={<KabataanPrograms />} />
-          <Route path="transparency"  element={<KabataanTransparency />} />
-          <Route path="officials"     element={<KabataanOfficials />} />
-          <Route path="points"        element={<KabataanPoints />} />
-          <Route path="rewards"       element={<KabataanRewards />} />
-          <Route path="meetings"      element={<KabataanMeetings />} />
-          <Route path="settings"      element={<KabataanSettings />} />
-          <Route path="checkin"       element={<CheckIn />} />
-          <Route path="checkin/:token" element={<CheckIn />} />
-        </Route>
+      {/* Kabataan */}
+      <Route path="/kabataan" element={<ProtectedRoute allow={[ROLES.KABATAAN]}><KabataanLayout /></ProtectedRoute>}>
+        <Route index element={<KabHome />} />
+        <Route path="events" element={<KabEvents />} />
+        <Route path="programs" element={<KabPrograms />} />
+        <Route path="rewards" element={<KabRewards />} />
+        <Route path="budget" element={<KabBudget />} />
+        <Route path="sk" element={<KabSKBoard />} />
+        <Route path="profile" element={<KabProfile />} />
+        <Route path="leaderboard" element={<Navigate to="/kabataan/rewards" replace />} />
+      </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Router>
-    </ThemeProvider>
-  )
+      <Route path="*" element={<RootRedirect />} />
+    </Routes>
+  );
 }

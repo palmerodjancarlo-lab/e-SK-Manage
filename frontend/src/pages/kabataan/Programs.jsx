@@ -1,140 +1,106 @@
-// kabataan/Programs.jsx — view SK programs & progress photos
-import { useState, useEffect } from 'react'
-import { useTheme } from '../../context/theme-utils'
-import axios from 'axios'
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronDown, FolderKanban, MapPin, Star, CalendarDays } from 'lucide-react';
+import api from '../../lib/api';
+import { peso, cn } from '../../lib/utils';
+import { Card, CardContent, Spinner, Badge, EmptyState } from '../../components/ui';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
-const peso=n=>`\u20B1${Number(n||0).toLocaleString('en-PH')}`
-const STATUS={ planned:'amber', ongoing:'sky', completed:'green', cancelled:'red' }
+const STATUS_TONE = { planned: 'info', ongoing: 'warning', completed: 'success', cancelled: 'danger' };
+const fmt = (d) => (d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
-export default function KabataanPrograms() {
-  const { T } = useTheme()
-  const [programs,setPrograms]=useState([])
-  const [selected,setSelected]=useState(null)
-  const [loading,setLoading]=useState(true)
-  const [lightbox,setLightbox]=useState(null)
+function Photos({ photos }) {
+  if (!photos?.length) return null;
+  return (
+    <div className="mt-3 flex gap-2 overflow-x-auto">
+      {photos.slice(0, 6).map((p, i) => (
+        <img key={i} src={p.url} alt={p.caption || ''} className="h-20 w-28 shrink-0 rounded-lg object-cover" />
+      ))}
+    </div>
+  );
+}
 
-  useEffect(()=>{
-    let active=true
-    axios.get(`${API}/programs`).then(r=>{ if(active) setPrograms(r.data.programs||[]) }).catch(()=>{}).finally(()=>{ if(active) setLoading(false) })
-    return ()=>{ active=false }
-  },[])
+export default function KabPrograms() {
+  const { data: programs = [], isLoading } = useQuery({
+    queryKey: ['public-programs'],
+    queryFn: async () => (await api.get('/programs/public')).data.programs || [],
+  });
+  const [open, setOpen] = useState({});
+  const toggle = (id) => setOpen((o) => ({ ...o, [id]: !o[id] }));
 
-  const openProgram=async(id)=>{ try{ const r=await axios.get(`${API}/programs/${id}`); setSelected(r.data) }catch{ /* ignore */ } }
-  const statusColor=(s)=>({ amber:T.amber, sky:T.sky, green:T.green, red:T.red }[STATUS[s]||'amber'])
-  const statusBg=(s)=>({ amber:T.amberSoft, sky:T.skySoft, green:T.greenSoft, red:T.redSoft }[STATUS[s]||'amber'])
-
-  if(loading) return <Loader T={T}/>
-
-  // Detail view
-  if(selected){
-    const { program, projects }=selected
-    return (
+  return (
+    <div className="space-y-6">
       <div>
-        <div style={{ background:`linear-gradient(135deg,${T.accent},${T.violet})`, padding:'18px 20px 24px', color:'#fff', borderRadius:'0 0 20px 20px' }}>
-          <button onClick={()=>setSelected(null)} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', fontSize:13, fontWeight:700, padding:'7px 14px', borderRadius:10, cursor:'pointer', marginBottom:14 }}>← Back</button>
-          <span style={{ fontSize:11, fontWeight:700, background:'rgba(255,255,255,0.2)', padding:'3px 10px', borderRadius:999 }}>{program.category}</span>
-          <h1 style={{ fontSize:22, fontWeight:800, margin:'10px 0 6px' }}>{program.title}</h1>
-          <p style={{ fontSize:13, opacity:0.85, margin:0, lineHeight:1.5 }}>{program.description}</p>
-        </div>
+        <h1 className="text-2xl font-bold text-fg">Programs &amp; Projects</h1>
+        <p className="mt-1 text-sm text-muted">See what your SK is doing for Barangay Tawiran — and where funds are being used.</p>
+      </div>
 
-        <div style={{ padding:16 }}>
-          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:18, padding:18, marginBottom:16, boxShadow:T.shadow }}>
-            <p style={{ fontSize:12, fontWeight:700, color:T.text3, textTransform:'uppercase', letterSpacing:'0.5px', margin:'0 0 12px' }}>Budget</p>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              <div style={{ background:T.surface2, borderRadius:12, padding:'12px 14px' }}>
-                <p style={{ fontSize:11, color:T.text3, margin:0 }}>Total Budget</p>
-                <p style={{ fontSize:18, fontWeight:800, color:T.accent, margin:'3px 0 0' }}>{peso(program.totalBudget)}</p>
-              </div>
-              <div style={{ background:T.surface2, borderRadius:12, padding:'12px 14px' }}>
-                <p style={{ fontSize:11, color:T.text3, margin:0 }}>Used</p>
-                <p style={{ fontSize:18, fontWeight:800, color:T.amber, margin:'3px 0 0' }}>{peso(program.totalProjectCost)}</p>
-              </div>
-            </div>
-          </div>
-
-          {program.photos?.length>0 && (
-            <div style={{ marginBottom:16 }}>
-              <p style={{ fontSize:15, fontWeight:800, margin:'0 0 10px', color:T.text }}>📸 Progress Photos</p>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
-                {program.photos.map((ph,i)=>(
-                  <div key={i} onClick={()=>setLightbox(ph.url)} style={{ aspectRatio:'1', borderRadius:12, background:`url(${ph.url}) center/cover`, cursor:'pointer', border:`1px solid ${T.border}` }}/>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <p style={{ fontSize:15, fontWeight:800, margin:'0 0 10px', color:T.text }}>Projects ({projects?.length||0})</p>
-          {(!projects||projects.length===0)
-            ? <Empty T={T} emoji="📋" text="No projects yet"/>
-            : <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                {projects.map(p=>(
-                  <div key={p._id} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:16, padding:16, boxShadow:T.shadow }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:6 }}>
-                      <p style={{ fontSize:14.5, fontWeight:700, margin:0, color:T.text }}>{p.title}</p>
-                      <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:999, background:statusBg(p.status), color:statusColor(p.status), whiteSpace:'nowrap', textTransform:'capitalize' }}>{p.status}</span>
-                    </div>
-                    {p.description && <p style={{ fontSize:12.5, color:T.text2, margin:'0 0 8px', lineHeight:1.5 }}>{p.description}</p>}
-                    {p.photos?.length>0 && (
-                      <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:4 }}>
-                        {p.photos.map((ph,i)=>(
-                          <div key={i} onClick={()=>setLightbox(ph.url)} style={{ width:72, height:72, borderRadius:10, background:`url(${ph.url}) center/cover`, flexShrink:0, cursor:'pointer', border:`1px solid ${T.border}` }}/>
-                        ))}
+      {isLoading ? <div className="flex justify-center py-16"><Spinner className="h-7 w-7 text-primary" /></div>
+        : programs.length === 0 ? <EmptyState icon={FolderKanban} title="No programs yet" description="SK programs and projects will appear here." />
+        : (
+          <div className="space-y-4">
+            {programs.map((g) => (
+              <Card key={g._id}>
+                <CardContent>
+                  <button onClick={() => toggle(g._id)} className="flex w-full items-start gap-3 text-left">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary"><FolderKanban className="h-5 w-5" /></span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="primary">{g.category}</Badge>
+                        <Badge variant={STATUS_TONE[g.status] || 'default'}>{g.status}</Badge>
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>}
-        </div>
+                      <h3 className="mt-1 font-bold text-fg">{g.title}</h3>
+                      {g.description && <p className="mt-0.5 line-clamp-2 text-sm text-muted">{g.description}</p>}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-subtle">
+                        {g.organizer && <span>Led by {g.organizer}</span>}
+                        {(g.startDate || g.endDate) && <span className="inline-flex items-center gap-1"><CalendarDays className="h-3 w-3" /> {fmt(g.startDate)}{g.endDate ? ` – ${fmt(g.endDate)}` : ''}</span>}
+                        <span className="font-semibold text-fg">{peso(g.spent)} used</span>
+                      </div>
+                    </div>
+                    <ChevronDown className={cn('mt-1 h-5 w-5 shrink-0 text-muted transition', open[g._id] && 'rotate-180')} />
+                  </button>
 
-        {lightbox && (
-          <div onClick={()=>setLightbox(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:200, padding:20 }}>
-            <img src={lightbox} alt="" style={{ maxWidth:'100%', maxHeight:'100%', borderRadius:12 }}/>
-            <button onClick={()=>setLightbox(null)} style={{ position:'absolute', top:20, right:20, background:'rgba(255,255,255,0.2)', border:'none', color:'#fff', width:40, height:40, borderRadius:'50%', fontSize:20, cursor:'pointer' }}>×</button>
+                  <Photos photos={g.photos} />
+
+                  {open[g._id] && (
+                    <div className="mt-4 space-y-3 border-t border-border pt-4">
+                      {(!g.projects || g.projects.length === 0) ? (
+                        <p className="text-sm text-muted">No projects under this program yet.</p>
+                      ) : g.projects.map((p) => (
+                        <div key={p._id} className="rounded-xl border border-border bg-surface2/40 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-bold text-fg">{p.title}</p>
+                            <Badge variant={STATUS_TONE[p.status] || 'default'}>{p.status}</Badge>
+                          </div>
+                          {p.description && <p className="mt-0.5 text-sm text-muted">{p.description}</p>}
+                          <p className="mt-1 text-xs font-semibold text-fg">{peso(p.spent)} used</p>
+                          <Photos photos={p.photos} />
+
+                          {p.activities?.length > 0 && (
+                            <div className="mt-3 space-y-2">
+                              {p.activities.map((a) => (
+                                <div key={a._id} className="rounded-lg bg-surface p-2.5">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm font-semibold text-fg">{a.title}</span>
+                                    {a.type && <Badge variant="default">{a.type}</Badge>}
+                                    {a.points > 0 && <span className="inline-flex items-center gap-1 text-xs font-bold text-accent"><Star className="h-3 w-3" /> earn {a.points} pts</span>}
+                                  </div>
+                                  {a.venue && <p className="mt-0.5 flex items-center gap-1 text-xs text-subtle"><MapPin className="h-3 w-3" /> {a.venue}</p>}
+                                  {a.description && <p className="mt-0.5 text-xs text-muted">{a.description}</p>}
+                                  <p className="mt-1 text-xs font-semibold text-fg">{peso(a.spent)} used</p>
+                                  <Photos photos={a.photos} />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
           </div>
         )}
-      </div>
-    )
-  }
-
-  // List view
-  return (
-    <div>
-      <div style={{ background:`linear-gradient(135deg,${T.accent},${T.violet})`, padding:'24px 20px', color:'#fff', borderRadius:'0 0 20px 20px' }}>
-        <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>Programs 🏆</h1>
-        <p style={{ fontSize:12.5, opacity:0.85, margin:'3px 0 0' }}>See what your SK is working on</p>
-      </div>
-      <div style={{ padding:16 }}>
-        {programs.length===0
-          ? <Empty T={T} emoji="🏆" text="No programs yet" sub="Check back to see SK projects."/>
-          : <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-              {programs.map(p=>{
-                const pct=p.totalBudget>0?Math.min(100,Math.round((p.totalProjectCost/p.totalBudget)*100)):0
-                return (
-                  <div key={p._id} onClick={()=>openProgram(p._id)} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:18, overflow:'hidden', cursor:'pointer', boxShadow:T.shadow }}>
-                    {p.photos?.length>0 && <div style={{ height:130, background:`url(${p.photos[0].url}) center/cover` }}/>}
-                    <div style={{ padding:16 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:6 }}>
-                        <span style={{ fontSize:10, fontWeight:700, color:T.violet, background:T.violetSoft, padding:'3px 10px', borderRadius:999 }}>{p.category}</span>
-                        <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:999, background:statusBg(p.status), color:statusColor(p.status), textTransform:'capitalize' }}>{p.status}</span>
-                      </div>
-                      <p style={{ fontSize:16, fontWeight:800, margin:'0 0 4px', color:T.text }}>{p.title}</p>
-                      <p style={{ fontSize:12.5, color:T.text2, margin:'0 0 12px', lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{p.description||'No description'}</p>
-                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:11.5, marginBottom:5 }}>
-                        <span style={{ color:T.text2, fontWeight:600 }}>Budget used</span>
-                        <span style={{ color:T.text, fontWeight:700 }}>{peso(p.totalProjectCost)} / {peso(p.totalBudget)}</span>
-                      </div>
-                      <div style={{ height:6, background:T.surface2, borderRadius:999, overflow:'hidden' }}>
-                        <div style={{ height:'100%', width:`${pct}%`, background:`linear-gradient(90deg,${T.accent},${T.violet})`, borderRadius:999 }}/>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>}
-      </div>
     </div>
-  )
+  );
 }
-function Empty({ T, emoji, text, sub }) { return <div style={{ textAlign:'center', padding:'44px 20px', background:T.surface, border:`1px dashed ${T.border}`, borderRadius:18 }}><div style={{ fontSize:38, marginBottom:8 }}>{emoji}</div><p style={{ fontSize:14.5, fontWeight:700, margin:'0 0 4px', color:T.text }}>{text}</p>{sub&&<p style={{ fontSize:12.5, color:T.text3, margin:0 }}>{sub}</p>}</div> }
-function Loader({ T }) { return <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'70vh' }}><div style={{ width:32, height:32, border:`3px solid ${T.border}`, borderTopColor:T.accent, borderRadius:'50%', animation:'sp .7s linear infinite' }}/><style>{`@keyframes sp{to{transform:rotate(360deg)}}`}</style></div> }

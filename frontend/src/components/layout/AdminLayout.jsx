@@ -1,168 +1,221 @@
-// layouts/AdminLayout.jsx — e-SK Manage Admin Console
-// Institutional design, full responsive, real dark mode via ThemeContext.
-import { useState } from 'react'
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
-import { useTheme } from '../../context/theme-utils'
-import { Icon } from '../../components/Icon'
-import skLogo from '../../assets/sk-logo.svg'
+// src/components/layout/AdminLayout.jsx — e-SK Manage "Head Console"
+// Collapsible accordion sidebar (no scrolling), slide-over drawer on mobile,
+// sticky top bar with theme toggle + user menu.
+// cspell:words Barangay Tawiran Marinduque kabataan kagawad
+import { useEffect, useState } from 'react';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import {
+  LayoutDashboard, Megaphone, CalendarDays, ClipboardList, Wallet, Gift,
+  Users, UserPlus, ShieldCheck, Settings, Menu, X, Sun, Moon, LogOut,
+  FileText, PieChart, ChevronDown,
+} from 'lucide-react';
+import { useAuth } from '../../context/auth-store';
+import { Avatar } from '../ui';
+import { cn } from '../../lib/utils';
+import skLogo from '../../assets/sk-logo.svg';
 
-const NAV = [
-  { section:'Overview', items:[
-    { to:'/admin/dashboard', label:'Dashboard', icon:'home' },
-  ]},
-  { section:'User Management', items:[
-    { to:'/admin/users',     label:'All Users',         icon:'users' },
-    { to:'/admin/create-sk', label:'Create SK Account', icon:'identification' },
-  ]},
-  { section:'Oversight', items:[
-    { to:'/admin/programs', label:'Programs & Projects', icon:'clipboardList' },
-    { to:'/admin/finance',  label:'Financial Records',   icon:'banknotes' },
-  ]},
-  { section:'System', items:[
-    { to:'/admin/logs',     label:'Audit Trail', icon:'listBullet' },
-    { to:'/admin/settings', label:'Settings',    icon:'cog' },
-  ]},
-]
+const PRIMARY = { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard };
 
-function Sidebar({ T, onNavigate, onLogout, user }) {
+const GROUPS = [
+  { id: 'community', label: 'Community', icon: Megaphone, items: [
+    { to: '/admin/announcements', label: 'Announcements', icon: Megaphone },
+    { to: '/admin/meetings', label: 'Meetings & Events', icon: CalendarDays },
+    { to: '/admin/programs', label: 'Programs & Projects', icon: ClipboardList },
+  ] },
+  { id: 'finance', label: 'Finance & Youth', icon: Wallet, items: [
+    { to: '/admin/finance', label: 'Budget & Finance', icon: Wallet },
+    { to: '/admin/rewards', label: 'Rewards & Points', icon: Gift },
+    { to: '/admin/budget', label: 'Budget Breakdown', icon: PieChart },
+    { to: '/admin/reports', label: 'Reports', icon: FileText },
+  ] },
+  { id: 'members', label: 'Members', icon: Users, items: [
+    { to: '/admin/users', label: 'All Members', icon: Users },
+    { to: '/admin/create-sk', label: 'Create SK Account', icon: UserPlus },
+  ] },
+  { id: 'oversight', label: 'Oversight', icon: ShieldCheck, items: [
+    { to: '/admin/logs', label: 'Audit Trail', icon: ShieldCheck },
+    { to: '/admin/settings', label: 'Settings', icon: Settings },
+  ] },
+];
+
+const ALL = [PRIMARY, ...GROUPS.flatMap((g) => g.items)];
+const ROLE_LABEL = { admin: 'Head / Chairperson', sk_chairperson: 'SK Chairperson' };
+
+function activeGroupId(pathname) {
+  return GROUPS.find((g) => g.items.some((i) => pathname.startsWith(i.to)))?.id || null;
+}
+
+function useTheme() {
+  const [dark, setDark] = useState(() => {
+    try { return localStorage.getItem('esk-theme') === 'dark'; } catch { return false; }
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem('esk-theme', dark ? 'dark' : 'light'); } catch { /* ignore */ }
+  }, [dark]);
+  return [dark, () => setDark((d) => !d)];
+}
+
+function NavItems({ pathname, openGroup, setOpenGroup, onNavigate }) {
   return (
-    <div style={{ width:256, background:T.sidebar, height:'100vh', display:'flex', flexDirection:'column', position:'fixed', left:0, top:0 }}>
-      {/* Brand */}
-      <div style={{ padding:'20px 20px', borderBottom:`1px solid rgba(255,255,255,0.07)` }}>
-        <div style={{ display:'flex', alignItems:'center', gap:11 }}>
-          <div style={{ width:40, height:40, borderRadius:10, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
-            <img src={skLogo} alt="SK" style={{ width:30, height:30, objectFit:'contain' }} />
-          </div>
-          <div>
-            <div style={{ fontSize:15, fontWeight:800, color:'#fff', letterSpacing:'-0.3px' }}>e-SK Manage</div>
-            <div style={{ fontSize:9, color:T.gold, fontWeight:700, letterSpacing:'1.5px', textTransform:'uppercase' }}>Admin Console</div>
-          </div>
-        </div>
-      </div>
+    <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Dashboard (standalone) */}
+      <NavLink to={PRIMARY.to} onClick={onNavigate}
+        className={({ isActive }) => cn('group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-semibold transition',
+          isActive ? 'bg-white/15 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}>
+        {({ isActive }) => (
+          <>
+            {isActive && <span className="absolute left-0 top-1/2 h-4 w-1 -translate-y-1/2 rounded-r-full bg-white" />}
+            <PRIMARY.icon className="h-[17px] w-[17px] shrink-0" />
+            <span className="truncate">{PRIMARY.label}</span>
+          </>
+        )}
+      </NavLink>
 
-      {/* Nav */}
-      <div style={{ flex:1, overflowY:'auto', padding:'14px 12px' }}>
-        {NAV.map(group => (
-          <div key={group.section} style={{ marginBottom:18 }}>
-            <div style={{ fontSize:9.5, fontWeight:700, color:T.sidebarText, textTransform:'uppercase', letterSpacing:'1.2px', padding:'0 10px', marginBottom:8, opacity:0.55 }}>{group.section}</div>
-            {group.items.map(item => (
-              <NavLink key={item.to} to={item.to} onClick={onNavigate}
-                style={({ isActive }) => ({
-                  display:'flex', alignItems:'center', gap:12, padding:'10px 12px', borderRadius:8, marginBottom:2,
-                  textDecoration:'none', fontSize:13.5, fontWeight:600,
-                  color: isActive ? '#fff' : T.sidebarText,
-                  background: isActive ? 'rgba(255,255,255,0.08)' : 'transparent',
-                  borderLeft: isActive ? `3px solid ${T.gold}` : '3px solid transparent',
-                  transition:'all 0.12s',
-                })}>
-                <Icon name={item.icon} size={17} />
-                {item.label}
-              </NavLink>
-            ))}
-          </div>
-        ))}
-      </div>
+      {/* Collapsible groups */}
+      {GROUPS.map((g) => {
+        const open = openGroup === g.id;
+        const containsActive = g.items.some((i) => pathname.startsWith(i.to));
+        const GroupIcon = g.icon;
+        return (
+          <div key={g.id}>
+            <button
+              onClick={() => setOpenGroup(open ? null : g.id)}
+              className={cn('flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-semibold transition',
+                !open && containsActive ? 'text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}
+            >
+              <GroupIcon className="h-[17px] w-[17px] shrink-0" />
+              <span className="flex-1 text-left">{g.label}</span>
+              {!open && containsActive && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+              <ChevronDown className={cn('h-4 w-4 shrink-0 text-white/50 transition-transform', open && 'rotate-180')} />
+            </button>
 
-      {/* User + logout */}
-      <div style={{ padding:'14px 14px', borderTop:`1px solid rgba(255,255,255,0.07)` }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-          <div style={{
-            width:36, height:36, borderRadius:'50%', flexShrink:0,
-            background: user?.photo ? `url(${user.photo}) center/cover` : 'rgba(255,255,255,0.1)',
-            display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, color:'#fff',
-          }}>
-            {!user?.photo && <>{user?.firstName?.[0]}{user?.lastName?.[0]}</>}
+            {open && (
+              <div className="mb-1 mt-0.5 space-y-0.5">
+                {g.items.map((item) => (
+                  <NavLink key={item.to} to={item.to} onClick={onNavigate}
+                    className={({ isActive }) => cn('flex items-center gap-3 rounded-lg py-2 pl-10 pr-3 text-[13px] font-medium transition',
+                      isActive ? 'bg-white/15 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white')}>
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            )}
           </div>
-          <div style={{ minWidth:0, flex:1 }}>
-            <div style={{ fontSize:12.5, fontWeight:700, color:'#fff', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user?.firstName} {user?.lastName}</div>
-            <div style={{ fontSize:10, color:T.gold, fontWeight:600 }}>Administrator</div>
-          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
+      <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-white">
+        <img src={skLogo} alt="SK" className="h-6 w-6 object-contain" />
+      </div>
+      <div>
+        <p className="text-sm font-extrabold leading-tight text-white">e-SK Manage</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/50">Head Console</p>
+      </div>
+    </div>
+  );
+}
+
+function UserCard({ user, onLogout }) {
+  return (
+    <div className="border-t border-white/10 p-3">
+      <div className="flex items-center gap-3 rounded-xl bg-white/5 p-2.5">
+        <Avatar name={`${user?.firstName || ''} ${user?.lastName || ''}`} src={user?.photo} size="sm" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-white">{user?.firstName} {user?.lastName}</p>
+          <p className="truncate text-[11px] text-white/50">{ROLE_LABEL[user?.role] || 'Administrator'}</p>
         </div>
-        <button onClick={onLogout} style={{ width:'100%', padding:'9px', background:'transparent', border:`1px solid rgba(255,255,255,0.12)`, borderRadius:7, color:T.sidebarText, fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
-          <Icon name="logout" size={14} /> Sign Out
+        <button onClick={onLogout} title="Log out"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white">
+          <LogOut className="h-4 w-4" />
         </button>
       </div>
     </div>
-  )
+  );
 }
 
 export default function AdminLayout() {
-  const [mobileOpen, setMobileOpen] = useState(false)
-  const { user, logout } = useAuth()
-  const { T, mode, toggle } = useTheme()
-  const navigate = useNavigate()
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [dark, toggleTheme] = useTheme();
+  const [drawer, setDrawer] = useState(false);
+  const [openGroup, setOpenGroup] = useState(() => activeGroupId(location.pathname));
 
-  const handleLogout = () => { logout(); navigate('/login') }
+  // keep the active group open as the route changes — adjust state during render
+  // (React-sanctioned pattern) rather than in an effect
+  const [lastPath, setLastPath] = useState(location.pathname);
+  if (location.pathname !== lastPath) {
+    setLastPath(location.pathname);
+    const id = activeGroupId(location.pathname);
+    if (id) setOpenGroup(id);
+  }
+
+  const current = ALL.find((i) => location.pathname.startsWith(i.to));
+  const title = current?.label || 'Head Console';
+  const doLogout = () => { logout?.(); navigate('/login'); };
+  const sidebarBg = { background: 'linear-gradient(180deg,#3730a3 0%,#312e81 55%,#1e1b4b 100%)' };
 
   return (
-    <div style={{ background:T.appBg, minHeight:'100vh', fontFamily:"'Plus Jakarta Sans','Inter','Segoe UI',system-ui,sans-serif", color:T.text }}>
+    <div className="min-h-screen bg-bg">
+      {/* desktop sidebar */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col shadow-xl lg:flex" style={sidebarBg}>
+        <Brand />
+        <NavItems pathname={location.pathname} openGroup={openGroup} setOpenGroup={setOpenGroup} />
+        <UserCard user={user} onLogout={doLogout} />
+      </aside>
 
-      {/* Desktop sidebar */}
-      <div className="adm-desktop-sidebar" style={{ display:'none' }}>
-        <Sidebar T={T} user={user} onLogout={handleLogout} />
-      </div>
-
-      {/* Mobile drawer */}
-      {mobileOpen && (
-        <>
-          <div onClick={()=>setMobileOpen(false)} style={{ position:'fixed', inset:0, background:T.overlay, zIndex:60 }} />
-          <div style={{ position:'fixed', left:0, top:0, zIndex:70 }}>
-            <Sidebar T={T} user={user} onLogout={handleLogout} onNavigate={()=>setMobileOpen(false)} />
-          </div>
-        </>
+      {/* mobile drawer */}
+      {drawer && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawer(false)} />
+          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col" style={sidebarBg}>
+            <div className="flex items-center justify-between border-b border-white/10 pr-3">
+              <Brand />
+              <button onClick={() => setDrawer(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-white/70 hover:bg-white/10">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <NavItems pathname={location.pathname} openGroup={openGroup} setOpenGroup={setOpenGroup} onNavigate={() => setDrawer(false)} />
+            <UserCard user={user} onLogout={doLogout} />
+          </aside>
+        </div>
       )}
 
-      {/* Main */}
-      <div className="adm-main">
-        {/* Top bar */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, padding:'12px 16px', background:T.surface, borderBottom:`1px solid ${T.border}`, position:'sticky', top:0, zIndex:40 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <button className="adm-burger" onClick={()=>setMobileOpen(true)} style={{ display:'none', background:'none', border:'none', color:T.text, cursor:'pointer', padding:4 }}>
-              <Icon name="menu" size={22} />
-            </button>
-            <span className="adm-topbar-brand" style={{ fontSize:15, fontWeight:800, color:T.text, display:'none' }}>e-SK Manage</span>
-          </div>
-          <button onClick={toggle} title="Toggle theme" style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:8, width:38, height:38, cursor:'pointer', color:T.text2, display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <Icon name={mode==='dark' ? 'sun' : 'moon'} size={17} />
+      {/* main column */}
+      <div className="lg:pl-64">
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-surface/80 px-4 backdrop-blur sm:px-6">
+          <button onClick={() => setDrawer(true)} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface2 lg:hidden">
+            <Menu className="h-5 w-5" />
           </button>
-        </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-lg font-extrabold text-fg">{title}</h1>
+            <p className="hidden text-xs text-muted sm:block">Barangay Tawiran · Santa Cruz, Marinduque</p>
+          </div>
+          <button onClick={toggleTheme} title="Toggle theme"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted transition hover:bg-surface2 hover:text-fg">
+            {dark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+          </button>
+          <div className="flex items-center gap-2.5 rounded-full border border-border bg-surface py-1 pl-1 pr-3">
+            <Avatar name={`${user?.firstName || ''} ${user?.lastName || ''}`} src={user?.photo} size="sm" />
+            <div className="hidden leading-tight sm:block">
+              <p className="max-w-[120px] truncate text-xs font-bold text-fg">{user?.firstName} {user?.lastName}</p>
+              <p className="text-[10px] text-muted">{ROLE_LABEL[user?.role] || 'Administrator'}</p>
+            </div>
+          </div>
+        </header>
 
-        <div className="adm-content" style={{ padding:'24px', maxWidth:1400, margin:'0 auto' }}>
+        <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
           <Outlet />
-        </div>
+        </main>
       </div>
-
-      <style>{`
-        * { box-sizing: border-box; }
-        html, body { max-width: 100%; overflow-x: hidden; }
-        .adm-main { margin-left: 0; min-height: 100vh; min-width: 0; }
-        /* Desktop: fixed sidebar */
-        @media (min-width: 1024px) {
-          .adm-desktop-sidebar { display: block !important; }
-          .adm-main { margin-left: 256px; }
-          .adm-burger { display: none !important; }
-          .adm-topbar-brand { display: none !important; }
-        }
-        /* Tablet + phone: drawer sidebar, burger shown */
-        @media (max-width: 1023px) {
-          .adm-burger { display: flex !important; }
-          .adm-topbar-brand { display: inline !important; }
-          .adm-content { padding: 20px !important; }
-        }
-        /* Small tablets / large phones landscape */
-        @media (max-width: 768px) {
-          .adm-content { padding: 18px !important; }
-        }
-        /* Phones */
-        @media (max-width: 560px) {
-          .adm-content { padding: 14px !important; }
-        }
-        /* Very small / phone portrait */
-        @media (max-width: 380px) {
-          .adm-content { padding: 12px !important; }
-        }
-      `}</style>
     </div>
-  )
+  );
 }

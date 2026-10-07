@@ -1,129 +1,295 @@
-// sk/Settings.jsx — SK official account settings
-import { useState, useEffect } from 'react'
-import axios from 'axios'
-import { useAuth } from '../../context/AuthContext'
+// src/pages/sk/Settings.jsx — SK officer account settings
+// cspell:words kabataan kagawad Tawiran Barangay Purok sitio
+import { useRef, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import {
+  User, Lock, Palette, ShieldCheck, LogOut, Camera, Eye, EyeOff,
+  Sun, Moon, Mail, MapPin, Cake, Phone, BadgeCheck, Loader2, KeyRound, Settings,
+} from 'lucide-react';
+import api from '../../lib/api';
+import { cn } from '../../lib/utils';
+import { roleLabel } from '../../lib/roles';
+import { useAuth } from '../../context/auth-store';
+import {
+  Card, CardContent, Button, Input, Spinner, Avatar, Badge,
+} from '../../components/ui';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+const TABS = [
+  { k: 'profile', label: 'Profile', icon: User },
+  { k: 'security', label: 'Security', icon: Lock },
+  { k: 'appearance', label: 'Appearance', icon: Palette },
+  { k: 'account', label: 'Account', icon: ShieldCheck },
+];
 
-const T = {
-  bg:'#F7F8FA', card:'#FFFFFF', ink:'#111827', slate:'#6B7280', faint:'#9CA3AF',
-  line:'#EEF0F3', indigo:'#4F46E5', emerald:'#059669', emeraldSoft:'#ECFDF5',
-  rose:'#E11D48', roseSoft:'#FFF1F3',
+function applyTheme(dark) {
+  try {
+    document.documentElement.classList.toggle('dark', !!dark);
+    localStorage.setItem('esk-theme', dark ? 'dark' : 'light');
+  } catch { /* ignore */ }
 }
-const ROLE_LABEL = { sk_chairperson:'SK Chairperson', sk_secretary:'SK Secretary', sk_treasurer:'SK Treasurer', sk_kagawad:'SK Kagawad' }
+function fmtDate(d) {
+  if (!d) return '—';
+  const x = new Date(d);
+  return Number.isNaN(x.getTime()) ? '—' : x.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+}
 
-const field = { width:'100%', padding:'10px 12px', border:`1px solid ${T.line}`, borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', fontFamily:'inherit' }
-const lbl   = { fontSize:11, fontWeight:700, color:T.slate, textTransform:'uppercase', letterSpacing:'0.4px', display:'block', marginBottom:6 }
-
-function Card({ title, sub, children }) {
+function SectionHead({ icon, title, subtitle }) {
   return (
-    <div style={{ background:T.card, border:`1px solid ${T.line}`, borderRadius:16, overflow:'hidden', marginBottom:20 }}>
-      <div style={{ padding:'16px 22px', borderBottom:`1px solid ${T.line}`, background:T.bg }}>
-        <div style={{ fontSize:14, fontWeight:700 }}>{title}</div>
-        {sub && <div style={{ fontSize:12, color:T.slate, marginTop:2 }}>{sub}</div>}
+    <div className="flex items-start gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">{icon}</span>
+      <div>
+        <h4 className="text-base font-bold text-fg">{title}</h4>
+        <p className="text-sm text-muted">{subtitle}</p>
       </div>
-      <div style={{ padding:22 }}>{children}</div>
     </div>
-  )
+  );
 }
 
 export default function SKSettings() {
-  const { user } = useAuth()
-  const [profile, setProfile] = useState({ firstName:'', lastName:'', email:'', contactNumber:'' })
-  const [pw, setPw] = useState({ currentPassword:'', newPassword:'', confirm:'' })
-  const [msg, setMsg] = useState({ type:'', text:'' })
-  const [saving, setSaving] = useState(false)
+  const { user, logout } = useAuth();
+  const qc = useQueryClient();
+  const [tab, setTab] = useState('profile');
 
-  useEffect(() => {
-    if (user) setProfile({ firstName:user.firstName||'', lastName:user.lastName||'', email:user.email||'', contactNumber:user.contactNumber||'' })
-  }, [user])
-
-  const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg({ type:'', text:'' }), 4000) }
-
-  const saveProfile = async () => {
-    setSaving(true)
-    try {
-      await axios.put(`${API}/auth/profile`, { firstName:profile.firstName, lastName:profile.lastName, contactNumber:profile.contactNumber })
-      flash('success', 'Profile updated successfully.')
-    } catch(e) { flash('error', e.response?.data?.message || 'Update failed.') }
-    finally { setSaving(false) }
-  }
-
-  const changePassword = async () => {
-    if (pw.newPassword !== pw.confirm) return flash('error', 'New passwords do not match.')
-    if (pw.newPassword.length < 6) return flash('error', 'Password must be at least 6 characters.')
-    setSaving(true)
-    try {
-      await axios.put(`${API}/auth/change-password`, { currentPassword:pw.currentPassword, newPassword:pw.newPassword })
-      flash('success', 'Password changed successfully.')
-      setPw({ currentPassword:'', newPassword:'', confirm:'' })
-    } catch(e) { flash('error', e.response?.data?.message || 'Password change failed.') }
-    finally { setSaving(false) }
-  }
-
-  const roleLabel = ROLE_LABEL[user?.role] || 'SK Official'
+  const profileQ = useQuery({
+    queryKey: ['profile'],
+    queryFn: async () => (await api.get('/auth/profile')).data.user,
+  });
+  const me = profileQ.data || user || {};
 
   return (
-    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:T.ink, maxWidth:640 }}>
-      <div style={{ marginBottom:22 }}>
-        <h1 style={{ fontSize:22, fontWeight:800, margin:0, letterSpacing:'-0.5px' }}>Settings</h1>
-        <p style={{ fontSize:12.5, color:T.slate, marginTop:4 }}>Manage your account and security.</p>
+    <div className="mx-auto max-w-4xl space-y-5">
+      {/* title */}
+      <div className="flex items-center gap-3">
+        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-fg shadow-sm"><Settings className="h-6 w-6" /></span>
+        <div>
+          <h1 className="text-2xl font-black tracking-tight text-fg">Settings</h1>
+          <p className="text-sm text-muted">Manage your SK officer account and preferences.</p>
+        </div>
       </div>
 
-      {msg.text && (
-        <div style={{ padding:'12px 16px', borderRadius:10, marginBottom:20, fontSize:13, fontWeight:600,
-          background: msg.type==='success'?T.emeraldSoft:T.roseSoft, color: msg.type==='success'?T.emerald:T.rose,
-          border:`1px solid ${msg.type==='success'?'#A7F3D0':'#FECDD3'}` }}>
-          {msg.type==='success'?'✓ ':'⚠ '}{msg.text}
+      {/* tabs */}
+      <div className="border-b border-border">
+        <div className="flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.k;
+            return (
+              <button key={t.k} onClick={() => setTab(t.k)}
+                className={cn('inline-flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-3 text-sm font-semibold transition',
+                  active ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-fg')}>
+                <Icon className="h-4 w-4" /> {t.label}
+              </button>
+            );
+          })}
         </div>
+      </div>
+
+      {/* content */}
+      {profileQ.isLoading ? (
+        <div className="flex justify-center py-16"><Spinner className="h-7 w-7 text-primary" /></div>
+      ) : tab === 'profile' ? (
+        <ProfileSection me={me} onSaved={() => qc.invalidateQueries({ queryKey: ['profile'] })} />
+      ) : tab === 'security' ? (
+        <SecuritySection />
+      ) : tab === 'appearance' ? (
+        <AppearanceSection />
+      ) : (
+        <AccountSection me={me} logout={logout} />
       )}
+    </div>
+  );
+}
 
-      {/* Banner */}
-      <div style={{ background:'linear-gradient(135deg,#4F46E5,#7C3AED)', borderRadius:16, padding:24, marginBottom:20, color:'#fff' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-          <div style={{ width:56, height:56, borderRadius:'50%', background:'rgba(255,255,255,0.15)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, fontWeight:700 }}>
-            {profile.firstName?.[0]}{profile.lastName?.[0]}
+/* ───────────────── Profile ───────────────── */
+function ProfileSection({ me, onSaved }) {
+  const { setUser } = useAuth();
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(me.photo || '');
+  const [form, setForm] = useState({
+    firstName: me.firstName || '', lastName: me.lastName || '',
+    contactNumber: me.contactNumber || '', address: me.address || '',
+    purok: me.purok || '', photo: me.photo || '',
+  });
+  const on = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+
+  const saveM = useMutation({
+    mutationFn: (p) => api.put('/auth/profile', p),
+    onSuccess: (res) => { if (res?.data?.user) setUser(res.data.user); toast.success('Profile updated.'); onSaved(); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed to save.'),
+  });
+
+  const pickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // instant local preview so the change is visible right away
+    const localUrl = URL.createObjectURL(file);
+    setPreview(localUrl);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const { data } = await api.post('/upload/photo', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url = data.url || data.photo || data.secure_url;
+      const res = await api.put('/auth/profile', { ...form, photo: url });
+      setForm((f) => ({ ...f, photo: url }));
+      const u = res?.data?.user;
+      if (u) {
+        // cache-bust so the sidebar/header reload the image even if the URL is unchanged
+        const busted = u.photo ? `${u.photo}${u.photo.includes('?') ? '&' : '?'}t=${Date.now()}` : u.photo;
+        setUser({ ...u, photo: busted });
+        setPreview(busted);
+      }
+      toast.success('Photo updated.');
+      onSaved();
+    } catch (err) {
+      setPreview(me.photo || '');
+      toast.error(err.response?.data?.message || 'Upload failed.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent className="space-y-6">
+        <SectionHead icon={<User className="h-5 w-5" />} title="Profile" subtitle="Update your personal information." />
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <Avatar name={`${form.firstName} ${form.lastName}`} src={preview || form.photo} size="xl" />
+            {uploading && <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40"><Loader2 className="h-5 w-5 animate-spin text-white" /></span>}
           </div>
           <div>
-            <div style={{ fontSize:18, fontWeight:700 }}>{profile.firstName} {profile.lastName}</div>
-            <div style={{ fontSize:12, opacity:0.85, marginTop:2 }}>{profile.email}</div>
-            <span style={{ display:'inline-block', marginTop:6, fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:999, background:'rgba(255,255,255,0.2)', textTransform:'uppercase', letterSpacing:'0.4px' }}>
-              {roleLabel}
-            </span>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickPhoto} />
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}><Camera className="h-4 w-4" /> Change photo</Button>
+            <p className="mt-1 text-xs text-subtle">JPG or PNG. Square images look best.</p>
           </div>
         </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input label="First name" name="firstName" value={form.firstName} onChange={on} />
+          <Input label="Last name" name="lastName" value={form.lastName} onChange={on} />
+          <Input label="Contact number" name="contactNumber" value={form.contactNumber} onChange={on} placeholder="09xxxxxxxxx" />
+          <Input label="Purok" name="purok" value={form.purok} onChange={on} placeholder="e.g. Purok 1" />
+        </div>
+        <Input label="Address" name="address" value={form.address} onChange={on} placeholder="Street / sitio, Barangay Tawiran" />
+        <div className="flex justify-end">
+          <Button loading={saveM.isPending} onClick={() => saveM.mutate(form)} disabled={!form.firstName || !form.lastName}>Save changes</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ───────────────── Security ───────────────── */
+function SecuritySection() {
+  const [show, setShow] = useState(false);
+  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
+  const on = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+
+  const m = useMutation({
+    mutationFn: (p) => api.put('/auth/change-password', p),
+    onSuccess: () => { toast.success('Password changed.'); setForm({ currentPassword: '', newPassword: '', confirm: '' }); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
+  });
+
+  const submit = () => {
+    if (form.newPassword.length < 6) return toast.error('New password must be at least 6 characters.');
+    if (form.newPassword !== form.confirm) return toast.error('Passwords do not match.');
+    m.mutate({ currentPassword: form.currentPassword, newPassword: form.newPassword });
+  };
+
+  return (
+    <Card>
+      <CardContent className="space-y-6">
+        <div className="flex items-start justify-between gap-3">
+          <SectionHead icon={<Lock className="h-5 w-5" />} title="Security" subtitle="Change your account password." />
+          <Button variant="ghost" size="sm" onClick={() => setShow((s) => !s)}>{show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />} {show ? 'Hide' : 'Show'}</Button>
+        </div>
+        <div className="grid max-w-md gap-4">
+          <Input label="Current password" name="currentPassword" type={show ? 'text' : 'password'} value={form.currentPassword} onChange={on} />
+          <Input label="New password" name="newPassword" type={show ? 'text' : 'password'} value={form.newPassword} onChange={on} />
+          <Input label="Confirm new password" name="confirm" type={show ? 'text' : 'password'} value={form.confirm} onChange={on} />
+        </div>
+        <div className="flex justify-end">
+          <Button loading={m.isPending} onClick={submit} disabled={!form.currentPassword || !form.newPassword}><KeyRound className="h-4 w-4" /> Update password</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ───────────────── Appearance ───────────────── */
+function AppearanceSection() {
+  const [dark, setDark] = useState(() => {
+    try { return localStorage.getItem('esk-theme') === 'dark'; } catch { return false; }
+  });
+  const choose = (val) => { setDark(val); applyTheme(val); };
+  const OPTIONS = [{ v: false, label: 'Light', icon: Sun }, { v: true, label: 'Dark', icon: Moon }];
+
+  return (
+    <Card>
+      <CardContent className="space-y-6">
+        <SectionHead icon={<Palette className="h-5 w-5" />} title="Appearance" subtitle="Choose how e-SK Manage looks on this device." />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {OPTIONS.map((o) => {
+            const Icon = o.icon;
+            const active = dark === o.v;
+            return (
+              <button key={o.label} onClick={() => choose(o.v)}
+                className={cn('flex flex-col items-center gap-2 rounded-2xl border-2 p-5 transition', active ? 'border-primary bg-primary/5' : 'border-border bg-surface hover:bg-surface2')}>
+                <Icon className={cn('h-6 w-6', active ? 'text-primary' : 'text-muted')} />
+                <span className={cn('text-sm font-semibold', active ? 'text-primary' : 'text-fg')}>{o.label}</span>
+                {active && <BadgeCheck className="h-4 w-4 text-primary" />}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-subtle">Your theme choice is saved on this device.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ───────────────── Account ───────────────── */
+function InfoRow({ icon, label, value }) {
+  return (
+    <div className="flex items-center gap-3 py-3">
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface2 text-subtle">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-muted">{label}</p>
+        <p className="truncate text-sm font-semibold text-fg">{value || '—'}</p>
       </div>
+    </div>
+  );
+}
 
-      <Card title="Profile Information" sub="Update your name and contact details">
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-            <div><label style={lbl}>First Name</label><input style={field} value={profile.firstName} onChange={e=>setProfile({...profile,firstName:e.target.value})} /></div>
-            <div><label style={lbl}>Last Name</label><input style={field} value={profile.lastName} onChange={e=>setProfile({...profile,lastName:e.target.value})} /></div>
+function AccountSection({ me, logout }) {
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardContent>
+          <SectionHead icon={<ShieldCheck className="h-5 w-5" />} title="Account information" subtitle="Your account details in e-SK Manage." />
+          <div className="mt-4 divide-y divide-border">
+            <InfoRow icon={<ShieldCheck className="h-4 w-4" />} label="Role" value={roleLabel(me.role)} />
+            <InfoRow icon={<Mail className="h-4 w-4" />} label="Email" value={me.email} />
+            <InfoRow icon={<Phone className="h-4 w-4" />} label="Contact" value={me.contactNumber} />
+            <InfoRow icon={<MapPin className="h-4 w-4" />} label="Barangay" value={`${me.barangay || 'Tawiran'}, ${me.municipality || 'Santa Cruz'}`} />
+            <InfoRow icon={<Cake className="h-4 w-4" />} label="Member since" value={fmtDate(me.createdAt)} />
           </div>
-          <div><label style={lbl}>Contact Number</label><input style={field} value={profile.contactNumber} onChange={e=>setProfile({...profile,contactNumber:e.target.value})} placeholder="09xx-xxx-xxxx" /></div>
-          <div>
-            <label style={lbl}>Email Address</label>
-            <input style={{...field, background:T.bg, color:T.slate}} value={profile.email} disabled />
-            <p style={{ fontSize:11, color:T.faint, margin:'6px 0 0' }}>Contact your Admin to change your email.</p>
-          </div>
-          <button onClick={saveProfile} disabled={saving} style={{ padding:'10px 20px', background:T.indigo, color:'#fff', border:'none', borderRadius:9, fontSize:13, fontWeight:700, cursor:'pointer', alignSelf:'flex-start' }}>
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+          <div className="mt-3"><Badge variant="info">SK Official accounts are managed by the Chairperson.</Badge></div>
+        </CardContent>
       </Card>
 
-      <Card title="Change Password" sub="Keep your account secure">
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-          <div><label style={lbl}>Current Password</label><input type="password" style={field} value={pw.currentPassword} onChange={e=>setPw({...pw,currentPassword:e.target.value})} placeholder="Enter current password" /></div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-            <div><label style={lbl}>New Password</label><input type="password" style={field} value={pw.newPassword} onChange={e=>setPw({...pw,newPassword:e.target.value})} placeholder="Min. 6 characters" /></div>
-            <div><label style={lbl}>Confirm New</label><input type="password" style={field} value={pw.confirm} onChange={e=>setPw({...pw,confirm:e.target.value})} placeholder="Re-enter" /></div>
+      <Card>
+        <CardContent className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold text-fg">Sign out</p>
+            <p className="text-sm text-muted">End your session on this device.</p>
           </div>
-          <button onClick={changePassword} disabled={saving||!pw.currentPassword||!pw.newPassword} style={{ padding:'10px 20px', background:T.indigo, color:'#fff', border:'none', borderRadius:9, fontSize:13, fontWeight:700, cursor:'pointer', alignSelf:'flex-start', opacity:(!pw.currentPassword||!pw.newPassword)?0.6:1 }}>
-            {saving ? 'Updating...' : 'Update Password'}
-          </button>
-        </div>
+          <Button variant="outline" onClick={logout} className="text-danger hover:bg-danger/10"><LogOut className="h-4 w-4" /> Log out</Button>
+        </CardContent>
       </Card>
     </div>
-  )
+  );
 }

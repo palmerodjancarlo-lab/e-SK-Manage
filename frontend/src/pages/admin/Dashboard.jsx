@@ -1,245 +1,257 @@
-// admin/Dashboard.jsx — Admin overview, institutional design, theme-aware
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { useTheme } from '../../context/theme-utils'
-import { Icon } from '../../components/Icon'
+// src/pages/admin/Dashboard.jsx — Head Console overview
+// cspell:words kabataan kagawad Tawiran Marinduque
+import { useQuery } from '@tanstack/react-query';
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, BarChart, Bar, CartesianGrid,
-} from 'recharts'
-import axios from 'axios'
+  PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
+  CartesianGrid, Tooltip,
+} from 'recharts';
+import {
+  Users, ShieldCheck, UserCheck, Accessibility, Wallet,
+  Activity, ArrowUpRight, Megaphone, CalendarPlus, UserPlus,
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import api from '../../lib/api';
+import { Card, CardContent, Spinner, EmptyState, Avatar } from '../../components/ui';
+import { useAuth } from '../../context/auth-store';
+import { cn } from '../../lib/utils';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
-const peso = n => `\u20B1${Number(n||0).toLocaleString('en-PH')}`
+const peso = (n) =>
+  `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const num = (n) => Number(n || 0).toLocaleString('en-PH');
+const CAT_COLORS = ['#6366f1', '#3b82f6', '#8b5cf6', '#0ea5e9', '#f59e0b', '#14b8a6', '#ef4444', '#64748b'];
+const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
 
-const ROLES = {
-  sk_chairperson:'Chairperson', sk_secretary:'Secretary',
-  sk_treasurer:'Treasurer', sk_kagawad:'Kagawad',
+function greeting(h) {
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
 }
+
+// KPI tile — thin top accent, tinted icon chip. Reads as designed, not flat.
+function StatCard({ icon, label, value, sub, accent, chip }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <span className="absolute inset-x-0 top-0 h-1" style={{ background: accent }} />
+      <div className="flex items-start justify-between gap-3 p-5 pt-6">
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-muted">{label}</p>
+          <p className="mt-1 text-3xl font-extrabold tabular-nums text-fg">{value}</p>
+          {sub && <p className="mt-1 text-xs text-subtle">{sub}</p>}
+        </div>
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl" style={{ background: chip, color: accent }}>
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, tone }) {
+  return (
+    <div className="flex-1">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</p>
+      <p className={cn('mt-0.5 text-xl font-extrabold tabular-nums', tone || 'text-fg')}>{value}</p>
+    </div>
+  );
+}
+
+const ACTION_LABEL = {
+  CREATE_SK_ACCOUNT: 'created an SK account', UPDATE_USER: 'updated a member',
+  TOGGLE_USER: 'changed account status', RESET_PASSWORD: 'reset a password',
+  DELETE_USER: 'removed a member', VERIFY_RESIDENCY: 'verified a resident',
+  UNVERIFY_RESIDENCY: 'removed a verification',
+};
+
+const ACTIONS = [
+  { to: '/admin/announcements', label: 'Post announcement', icon: Megaphone },
+  { to: '/admin/meetings', label: 'New event', icon: CalendarPlus },
+  { to: '/admin/create-sk', label: 'Create SK account', icon: UserPlus, primary: true },
+];
 
 export default function AdminDashboard() {
-  const { T } = useTheme()
-  const [stats,setStats]=useState({ totalUsers:0,activeUsers:0,kabataanCount:0,skOfficialCount:0 })
-  const [users,setUsers]=useState([]); const [logs,setLogs]=useState([])
-  const [programs,setPrograms]=useState([])
-  const [finance,setFinance]=useState({ totalFunds:0,totalExpenses:0,balance:0,expensesByCategory:[] })
-  const [ledger,setLedger]=useState([]); const [loading,setLoading]=useState(true)
+  const { user } = useAuth();
 
-  useEffect(()=>{
-    let active=true
-    Promise.all([
-      axios.get(`${API}/admin/stats`), axios.get(`${API}/admin/users`),
-      axios.get(`${API}/admin/logs`), axios.get(`${API}/programs`),
-      axios.get(`${API}/finance/summary`).catch(()=>({data:{totalFunds:0,totalExpenses:0,balance:0,expensesByCategory:[]}})),
-      axios.get(`${API}/finance/ledger`).catch(()=>({data:{ledger:[]}})),
-    ]).then(([s,u,l,p,f,g])=>{
-      if(!active) return
-      setStats(s.data.stats); setUsers(u.data.users); setLogs(l.data.logs.slice(0,6))
-      setPrograms(p.data.programs); setFinance(f.data); setLedger(g.data.ledger||[])
-    }).catch(console.error).finally(()=>{ if(active) setLoading(false) })
-    return ()=>{ active=false }
-  },[])
+  const statsQ = useQuery({ queryKey: ['admin', 'stats'], queryFn: async () => (await api.get('/admin/stats')).data.stats });
+  const finQ = useQuery({ queryKey: ['finance', 'summary'], queryFn: async () => (await api.get('/finance/summary')).data });
+  const logsQ = useQuery({ queryKey: ['admin', 'logs'], queryFn: async () => (await api.get('/admin/logs')).data.logs });
+  const todayQ = useQuery({ queryKey: ['today'], queryFn: async () => new Date() });
 
-  const bal = ledger.map((e,i)=>({ n:i+1, balance:e.runningBalance, date:new Date(e.date).toLocaleDateString('en-PH',{month:'short',day:'numeric'}) }))
-  const expCats=(finance.expensesByCategory||[]).map(e=>({ name:(e._id||'other').replace(/\b\w/g,c=>c.toUpperCase()), value:e.total }))
-  const programMix=[
-    {name:'Planned',value:programs.filter(p=>p.status==='planned').length,color:T.amber},
-    {name:'Ongoing',value:programs.filter(p=>p.status==='ongoing').length,color:T.sky},
-    {name:'Completed',value:programs.filter(p=>p.status==='completed').length,color:T.green},
-    {name:'Cancelled',value:programs.filter(p=>p.status==='cancelled').length,color:T.red},
-  ].filter(d=>d.value>0)
-  const today=new Date().toLocaleDateString('en-PH',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
+  const s = statsQ.data || {};
+  const fin = finQ.data || {};
+  const logs = logsQ.data || [];
+  const today = todayQ.data || new Date();
 
-  if(loading) return <Loader T={T} />
+  const totalSex = (s.maleCount || 0) + (s.femaleCount || 0);
+  const sexData = [
+    { name: 'Male', value: s.maleCount || 0 },
+    { name: 'Female', value: s.femaleCount || 0 },
+  ].filter((d) => d.value > 0);
 
-  const stat = [
-    { label:'Total Accounts', value:stats.totalUsers, foot:`${stats.activeUsers} active`, icon:'users', tint:T.accent, to:'/admin/users' },
-    { label:'SK Officials', value:stats.skOfficialCount, foot:'Council members', icon:'shield', tint:T.gold, to:'/admin/users' },
-    { label:'Kabataan', value:stats.kabataanCount, foot:'Registered youth', icon:'star', tint:T.violet, to:'/admin/users' },
-    { label:'Programs', value:programs.length, foot:`${programs.filter(p=>p.status==='ongoing').length} ongoing`, icon:'clipboardList', tint:T.sky, to:'/admin/programs' },
-  ]
+  const catRaw = fin.expensesByCategory || [];
+  const catData = catRaw.map((c) => ({ name: cap(c.name || c._id || c.category || 'Other'), total: c.total ?? c.amount ?? 0 }));
 
-  const card = { background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, boxShadow:T.shadow }
+  const funds = fin.totalFunds ?? 0;
+  const spent = fin.totalExpenses ?? 0;
+  const balance = fin.balance ?? funds - spent;
+  const usedPct = funds > 0 ? Math.min(100, Math.round((spent / funds) * 100)) : 0;
+
+  if (statsQ.isLoading) return <div className="flex justify-center py-20"><Spinner className="h-8 w-8 text-primary" /></div>;
 
   return (
-    <div>
-      {/* Header */}
-      <div style={{ marginBottom:22 }}>
-        <div style={{ fontSize:11, fontWeight:700, color:T.accentText, textTransform:'uppercase', letterSpacing:'1px', marginBottom:6 }}>Administrator Console</div>
-        <h1 style={{ fontSize:24, fontWeight:800, margin:0, color:T.text, letterSpacing:'-0.5px' }}>System Overview</h1>
-        <p style={{ fontSize:13, color:T.text2, margin:'5px 0 0' }}>{today} &middot; Barangay Tawiran, Santa Cruz</p>
-      </div>
-
-      {/* Stat cards */}
-      <div className="adm-grid-4" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:16 }}>
-        {stat.map((s,i)=>(
-          <Link key={i} to={s.to} style={{ textDecoration:'none' }}>
-            <div style={{ ...card, padding:18 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
-                <div style={{ width:40, height:40, borderRadius:10, background:s.tint+'1A', display:'flex', alignItems:'center', justifyContent:'center', color:s.tint }}>
-                  <Icon name={s.icon} size={19} />
-                </div>
-              </div>
-              <div style={{ fontSize:28, fontWeight:800, color:T.text, lineHeight:1, letterSpacing:'-1px' }}>{s.value}</div>
-              <div style={{ fontSize:13, fontWeight:600, color:T.text, marginTop:8 }}>{s.label}</div>
-              <div style={{ fontSize:11.5, color:T.text3, marginTop:2 }}>{s.foot}</div>
-            </div>
-          </Link>
-        ))}
-      </div>
-
-      {/* Treasury summary strip */}
-      <div style={{ ...card, padding:0, marginBottom:16, overflow:'hidden' }}>
-        <div className="adm-treasury" style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', borderBottom:`1px solid ${T.border}` }}>
-          {[
-            { label:'Funds Received', value:peso(finance.totalFunds), c:T.green },
-            { label:'Total Disbursed', value:peso(finance.totalExpenses), c:T.red },
-            { label:'Balance on Hand', value:peso(finance.balance), c:T.accent },
-          ].map((s,i)=>(
-            <div key={i} style={{ padding:'18px 20px', borderRight: i<2?`1px solid ${T.border}`:'none' }}>
-              <div style={{ fontSize:11, fontWeight:600, color:T.text3, textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:7 }}>{s.label}</div>
-              <div style={{ fontSize:21, fontWeight:800, color:s.c, letterSpacing:'-0.5px' }}>{s.value}</div>
-            </div>
+    <div className="space-y-6">
+      {/* compact header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-extrabold text-fg">{greeting(today.getHours())}, {user?.firstName || 'Chairperson'} 👋</h2>
+          <p className="mt-1 text-sm text-muted">
+            {today.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · Barangay Tawiran
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {ACTIONS.map((a) => (
+            <Link key={a.to} to={a.to}
+              className={cn('inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition',
+                a.primary
+                  ? 'bg-primary text-primary-fg shadow-sm hover:opacity-90'
+                  : 'border border-border bg-surface text-fg hover:bg-surface2')}>
+              <a.icon className="h-4 w-4" /> {a.label}
+            </Link>
           ))}
         </div>
-        {bal.length>1 && (
-          <div style={{ padding:'16px 20px' }}>
-            <div style={{ fontSize:12, fontWeight:700, color:T.text2, marginBottom:10 }}>Balance Over Time</div>
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={bal} margin={{top:4,right:8,left:-8,bottom:0}}>
-                <defs><linearGradient id="abal" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={T.accent} stopOpacity={0.18}/><stop offset="100%" stopColor={T.accent} stopOpacity={0}/></linearGradient></defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false}/>
-                <XAxis dataKey="date" tick={{fontSize:11,fill:T.text3}} axisLine={false} tickLine={false}/>
-                <YAxis tick={{fontSize:11,fill:T.text3}} axisLine={false} tickLine={false} tickFormatter={v=>`\u20B1${(v/1000).toFixed(0)}k`}/>
-                <Tooltip contentStyle={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, fontSize:12, color:T.text }} formatter={v=>peso(v)}/>
-                <Area type="monotone" dataKey="balance" stroke={T.accent} strokeWidth={2.5} fill="url(#abal)"/>
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        )}
       </div>
 
-      {/* Charts row */}
-      <div className="adm-grid-2" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
-        <Panel T={T} title="Programs by Status">
-          {programMix.length===0 ? <Empty T={T} text="No programs yet"/> :
-            <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-              <ResponsiveContainer width="50%" height={160}>
-                <PieChart><Pie data={programMix} cx="50%" cy="50%" innerRadius={42} outerRadius={64} paddingAngle={3} dataKey="value">{programMix.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie>
-                <Tooltip contentStyle={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, fontSize:12, color:T.text }}/></PieChart>
-              </ResponsiveContainer>
-              <div style={{ flex:1, display:'flex', flexDirection:'column', gap:9 }}>
-                {programMix.map((e,i)=>(
-                  <div key={i} style={{ display:'flex', alignItems:'center', gap:9, fontSize:12.5 }}>
-                    <span style={{ width:9, height:9, borderRadius:2, background:e.color }}/>
-                    <span style={{ color:T.text2, flex:1 }}>{e.name}</span>
-                    <span style={{ fontWeight:700, color:T.text }}>{e.value}</span>
-                  </div>
-                ))}
+      {/* KPI cards */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={<Users className="h-5 w-5" />} label="Total members" value={num(s.totalUsers)} sub={`${num(s.activeUsers)} active`} accent="#6366f1" chip="rgba(99,102,241,0.14)" />
+        <StatCard icon={<UserCheck className="h-5 w-5" />} label="Kabataan" value={num(s.kabataanCount)} sub={`${num(s.verifiedCount)} verified`} accent="#3b82f6" chip="rgba(59,130,246,0.14)" />
+        <StatCard icon={<ShieldCheck className="h-5 w-5" />} label="SK officials" value={num(s.skOfficialCount)} sub="Council & kagawad" accent="#8b5cf6" chip="rgba(139,92,246,0.14)" />
+        <StatCard icon={<Accessibility className="h-5 w-5" />} label="PWD members" value={num(s.pwdCount)} sub="Registered kabataan" accent="#f59e0b" chip="rgba(245,158,11,0.14)" />
+      </div>
+
+      {/* treasury + members split */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        {/* treasury */}
+        <Card className="lg:col-span-3">
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="inline-flex items-center gap-2 text-sm font-bold text-fg"><Wallet className="h-4 w-4 text-primary" /> Treasury overview</p>
+              <Link to="/admin/finance" className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline">
+                Budget & Finance <ArrowUpRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+
+            <div className="mt-4 flex items-center gap-4">
+              <MiniStat label="Total funds" value={peso(funds)} />
+              <span className="h-9 w-px bg-border" />
+              <MiniStat label="Total spent" value={peso(spent)} tone="text-rose-500" />
+              <span className="h-9 w-px bg-border" />
+              <MiniStat label="Balance" value={peso(balance)} tone={balance >= 0 ? 'text-emerald-500' : 'text-rose-500'} />
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <span className="font-semibold text-muted">Budget utilization</span>
+                <span className="font-bold text-fg">{usedPct}%</span>
               </div>
-            </div>}
-        </Panel>
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface2">
+                <div className="h-full rounded-full transition-all" style={{ width: `${usedPct}%`, background: usedPct > 85 ? '#ef4444' : '#4f46e5' }} />
+              </div>
+            </div>
 
-        <Panel T={T} title="Spending by Category">
-          {expCats.length===0 ? <Empty T={T} text="No expenses recorded yet"/> :
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={expCats} layout="vertical" margin={{left:6,right:10}} barSize={15}>
-                <XAxis type="number" tick={{fontSize:10,fill:T.text3}} axisLine={false} tickLine={false} tickFormatter={v=>`\u20B1${(v/1000).toFixed(0)}k`}/>
-                <YAxis type="category" dataKey="name" tick={{fontSize:11,fill:T.text2}} axisLine={false} tickLine={false} width={82}/>
-                <Tooltip contentStyle={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, fontSize:12, color:T.text }} cursor={{fill:T.surface2}} formatter={v=>peso(v)}/>
-                <Bar dataKey="value" fill={T.red} radius={[0,5,5,0]}/>
-              </BarChart>
-            </ResponsiveContainer>}
-        </Panel>
+            <div className="mt-5">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Spending by category</p>
+              {catData.length === 0 ? (
+                <p className="py-6 text-center text-sm text-subtle">No expenses recorded yet.</p>
+              ) : (
+                <div className="h-44">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={catData} margin={{ top: 6, right: 8, left: -12, bottom: 0 }} barCategoryGap="35%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--border))" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'rgb(var(--muted))' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: 'rgb(var(--muted))' }} axisLine={false} tickLine={false} width={52}
+                        tickFormatter={(v) => `₱${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip formatter={(v) => peso(v)} cursor={{ fill: 'rgb(var(--surface2))' }} />
+                      <Bar dataKey="total" radius={[6, 6, 0, 0]} maxBarSize={42}>
+                        {catData.map((d, i) => <Cell key={d.name} fill={CAT_COLORS[i % CAT_COLORS.length]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* members by sex */}
+        <Card className="lg:col-span-2">
+          <CardContent>
+            <p className="text-sm font-bold text-fg">Members by sex</p>
+            {sexData.length === 0 ? (
+              <EmptyState icon={Users} title="No data yet" description="Kabataan records will appear here." />
+            ) : (
+              <div className="relative mt-2 h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={sexData} dataKey="value" nameKey="name" innerRadius={56} outerRadius={80} paddingAngle={3} strokeWidth={0}>
+                      {sexData.map((d, i) => <Cell key={d.name} fill={i === 0 ? '#3b82f6' : '#f59e0b'} />)}
+                    </Pie>
+                    <Tooltip formatter={(v, n) => [num(v), n]} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-extrabold text-fg">{num(totalSex)}</span>
+                  <span className="text-[11px] text-muted">members</span>
+                </div>
+              </div>
+            )}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-xl bg-surface2/60 p-3">
+                <p className="inline-flex items-center gap-1.5 text-xs text-muted"><span className="h-2.5 w-2.5 rounded-full" style={{ background: '#3b82f6' }} /> Male</p>
+                <p className="mt-0.5 text-lg font-extrabold text-fg">{num(s.maleCount)}</p>
+              </div>
+              <div className="rounded-xl bg-surface2/60 p-3">
+                <p className="inline-flex items-center gap-1.5 text-xs text-muted"><span className="h-2.5 w-2.5 rounded-full" style={{ background: '#f59e0b' }} /> Female</p>
+                <p className="mt-0.5 text-lg font-extrabold text-fg">{num(s.femaleCount)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Roster + activity */}
-      <div className="adm-grid-roster" style={{ display:'grid', gridTemplateColumns:'1fr 1.5fr', gap:16 }}>
-        <Panel T={T} title="The Council" action={<Link to="/admin/users" style={{ fontSize:12, fontWeight:600, color:T.accentText, textDecoration:'none' }}>Manage</Link>}>
-          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {Object.entries(ROLES).map(([role,label])=>{
-              const m=users.filter(u=>u.role===role)
-              return (
-                <div key={role} style={{ display:'flex', alignItems:'center', gap:11, padding:'9px 11px', borderRadius:9, background:T.surface2 }}>
-                  <div style={{ width:34, height:34, borderRadius:9, background:T.accent+'1A', color:T.accentText, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800 }}>
-                    {m[0]?`${m[0].firstName[0]}${m[0].lastName[0]}`:'\u2014'}
-                  </div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:12.5, fontWeight:700, color:T.text }}>{label}</div>
-                    {m[0] ? <div style={{ fontSize:11.5, color:T.text2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{m[0].firstName} {m[0].lastName}{m.length>1&&<span style={{color:T.text3}}> +{m.length-1}</span>}</div>
-                          : <div style={{ fontSize:11.5, color:T.text3, fontStyle:'italic' }}>Vacant</div>}
-                  </div>
-                </div>
-              )
-            })}
+      {/* recent activity */}
+      <Card>
+        <CardContent>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="inline-flex items-center gap-2 text-sm font-bold text-fg"><Activity className="h-4 w-4 text-primary" /> Recent activity</p>
+            <Link to="/admin/logs" className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline">
+              Audit trail <ArrowUpRight className="h-3.5 w-3.5" />
+            </Link>
           </div>
-        </Panel>
-
-        <Panel T={T} title="Recent Activity" sub="Attributed and time-stamped" action={<Link to="/admin/logs" style={{ fontSize:12, fontWeight:600, color:T.accentText, textDecoration:'none' }}>View all</Link>} flush>
-          <div style={{ maxHeight:280, overflowY:'auto' }}>
-            {logs.length===0 ? <Empty T={T} text="No activity yet"/> :
-              logs.map((log,i)=>(
-                <div key={log._id} style={{ display:'flex', gap:12, padding:'12px 18px', borderBottom:i<logs.length-1?`1px solid ${T.border}`:'none' }}>
-                  <div style={{ width:8, height:8, borderRadius:'50%', background:T.accent, marginTop:5, flexShrink:0 }}/>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:12.5, color:T.text, lineHeight:1.4 }}>{log.details}</div>
-                    <div style={{ fontSize:10.5, color:T.text3, marginTop:2 }}>
-                      {log.user&&`${log.user.firstName} ${log.user.lastName} \u00B7 `}
-                      {new Date(log.createdAt).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
-                    </div>
+          {logsQ.isLoading ? (
+            <div className="flex justify-center py-8"><Spinner className="h-6 w-6 text-primary" /></div>
+          ) : logs.length === 0 ? (
+            <EmptyState icon={Activity} title="Nothing yet" description="Actions across the console will show up here." />
+          ) : (
+            <div className="divide-y divide-border">
+              {logs.slice(0, 6).map((l) => (
+                <div key={l._id} className="flex items-center gap-3 py-2.5">
+                  <Avatar name={`${l.user?.firstName || 'System'} ${l.user?.lastName || ''}`} src={l.user?.photo} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-fg">
+                      <b>{l.user?.firstName || 'System'} {l.user?.lastName || ''}</b>{' '}
+                      <span className="text-muted">{ACTION_LABEL[l.action] || (l.action || '').toLowerCase().replace(/_/g, ' ')}</span>
+                    </p>
+                    {l.details && <p className="truncate text-xs text-subtle">{l.details}</p>}
                   </div>
+                  <span className="shrink-0 text-xs text-subtle">
+                    {new Date(l.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+                  </span>
                 </div>
               ))}
-          </div>
-        </Panel>
-      </div>
-
-      <style>{`
-        /* Tablet landscape */
-        @media (max-width: 1024px) {
-          .adm-grid-roster { grid-template-columns: 1fr !important; }
-        }
-        /* Tablet portrait / large phone landscape */
-        @media (max-width: 860px) {
-          .adm-grid-4 { grid-template-columns: repeat(2,1fr) !important; }
-          .adm-grid-2 { grid-template-columns: 1fr !important; }
-        }
-        /* Phone landscape / small tablet */
-        @media (max-width: 640px) {
-          .adm-treasury { grid-template-columns: 1fr !important; }
-          .adm-treasury > div { border-right: none !important; border-bottom: 1px solid ${T.border} !important; }
-          .adm-treasury > div:last-child { border-bottom: none !important; }
-        }
-        /* Phone portrait */
-        @media (max-width: 440px) {
-          .adm-grid-4 { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
-  )
-}
-
-function Panel({ T, title, sub, action, flush, children }) {
-  return (
-    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, boxShadow:T.shadow, overflow:'hidden' }}>
-      <div style={{ padding:'15px 18px', borderBottom:`1px solid ${T.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div>
-          <div style={{ fontSize:13.5, fontWeight:700, color:T.text }}>{title}</div>
-          {sub && <div style={{ fontSize:11, color:T.text3, marginTop:2 }}>{sub}</div>}
-        </div>
-        {action}
-      </div>
-      <div style={{ padding: flush?0:18 }}>{children}</div>
-    </div>
-  )
-}
-function Empty({ T, text }) {
-  return <div style={{ height:150, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12.5, color:T.text3 }}>{text}</div>
-}
-function Loader({ T }) {
-  return <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:440, gap:14 }}>
-    <div style={{ width:32, height:32, border:`2.5px solid ${T.border}`, borderTopColor:T.accent, borderRadius:'50%', animation:'sp .7s linear infinite' }}/>
-    <span style={{ fontSize:12, color:T.text2 }}>Loading dashboard\u2026</span>
-    <style>{`@keyframes sp{to{transform:rotate(360deg)}}`}</style>
-  </div>
+  );
 }

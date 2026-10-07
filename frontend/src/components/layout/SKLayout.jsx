@@ -1,170 +1,200 @@
-// SKLayout.jsx — SK Portal (Chairperson, Secretary, Treasurer, Kagawad)
-// Clean light sidebar. Nav adapts to the logged-in role.
+// src/components/layout/SKLayout.jsx — e-SK Manage "SK Console"
+// Self-contained sidebar (matches Head Console): role-based nav, SK logo,
+// theme toggle, mobile drawer. Tailwind semantic tokens, real dark mode.
+// cspell:words Barangay Tawiran Marinduque kabataan kagawad
+import { useEffect, useState } from 'react';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import {
+  LayoutDashboard, Bell, Calendar, Wallet, FolderKanban, Award, Users, FileText,
+  Settings, Menu, X, Sun, Moon, LogOut,
+} from 'lucide-react';
+import { useAuth } from '../../context/auth-store';
+import { Avatar } from '../ui';
+import { cn } from '../../lib/utils';
+import { roleLabel, ROLES } from '../../lib/roles';
+import skLogo from '../../assets/sk-logo.svg';
 
-import { useState } from 'react'
-import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
-import { useTheme } from '../../context/theme-utils'
-import { Icon } from '../../components/Icon'
-import skLogo from '../../assets/sk-logo.png'
-import toast from 'react-hot-toast'
+const DASH = { to: '/sk', label: 'Dashboard', icon: LayoutDashboard, end: true };
+const SETTINGS = { to: '/sk/settings', label: 'Settings', icon: Settings };
 
-const NAV = [
-  { to: '/sk/dashboard',     icon: 'home',      label: 'Dashboard' },
-  { to: '/sk/announcements', icon: 'megaphone', label: 'Announcements' },
-  { to: '/sk/meetings',      icon: 'calendar',  label: 'Meetings & Events' },
-  { to: '/sk/programs',      icon: 'trophy',    label: 'Programs' },
-  { to: '/sk/finance',       icon: 'banknotes', label: 'Budget & Finance' },
-  { to: '/sk/rewards',       icon: 'gift',      label: 'Rewards & Points' },
-  { to: '/sk/members',       icon: 'users',     label: 'Members' },
-  { to: '/sk/settings',      icon: 'cog',       label: 'Settings' },
-]
+const NAV_BY_ROLE = {
+  [ROLES.SECRETARY]: [
+    DASH,
+    { to: '/sk/announcements', label: 'Announcements', icon: Bell },
+    { to: '/sk/meetings', label: 'Meetings & Events', icon: Calendar },
+    { to: '/sk/programs', label: 'Programs', icon: FolderKanban },
+    { to: '/sk/members', label: 'Members', icon: Users },
+    SETTINGS,
+  ],
+  [ROLES.TREASURER]: [
+    DASH,
+    { to: '/sk/finance', label: 'Budget & Finance', icon: Wallet },
+    { to: '/sk/meetings', label: 'Meetings & Events', icon: Calendar },
+    { to: '/sk/rewards', label: 'Rewards & Points', icon: Award },
+    { to: '/sk/reports', label: 'Reports', icon: FileText },
+    SETTINGS,
+  ],
+  [ROLES.KAGAWAD]: [
+    DASH,
+    { to: '/sk/programs', label: 'Programs', icon: FolderKanban },
+    { to: '/sk/meetings', label: 'Meetings & Events', icon: Calendar },
+    { to: '/sk/rewards', label: 'Rewards & Points', icon: Award },
+    SETTINGS,
+  ],
+};
 
-const ROLE_LABEL = {
-  sk_chairperson: 'SK Chairperson',
-  sk_secretary:   'SK Secretary',
-  sk_treasurer:   'SK Treasurer',
-  sk_kagawad:     'SK Kagawad',
+// Chairperson, if routed here, gets the full set.
+const NAV_CHAIR = [
+  DASH,
+  { to: '/sk/announcements', label: 'Announcements', icon: Bell },
+  { to: '/sk/meetings', label: 'Meetings & Events', icon: Calendar },
+  { to: '/sk/programs', label: 'Programs', icon: FolderKanban },
+  { to: '/sk/finance', label: 'Budget & Finance', icon: Wallet },
+  { to: '/sk/rewards', label: 'Rewards & Points', icon: Award },
+  { to: '/sk/members', label: 'Members', icon: Users },
+  { to: '/sk/reports', label: 'Reports', icon: FileText },
+  SETTINGS,
+];
+
+function navFor(role) {
+  if (role === ROLES.CHAIRPERSON || role === 'sk_chairperson' || role === 'admin') return NAV_CHAIR;
+  return NAV_BY_ROLE[role] || NAV_BY_ROLE[ROLES.KAGAWAD];
+}
+
+function useTheme() {
+  const [dark, setDark] = useState(() => {
+    try { return localStorage.getItem('esk-theme') === 'dark'; } catch { return false; }
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem('esk-theme', dark ? 'dark' : 'light'); } catch { /* ignore */ }
+  }, [dark]);
+  return [dark, () => setDark((d) => !d)];
+}
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
+      <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-white">
+        <img src={skLogo} alt="SK" className="h-6 w-6 object-contain" />
+      </div>
+      <div>
+        <p className="text-sm font-extrabold leading-tight text-white">e-SK Manage</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/50">SK Console</p>
+      </div>
+    </div>
+  );
+}
+
+function NavItems({ nav, onNavigate }) {
+  return (
+    <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">Menu</p>
+      {nav.map((item) => (
+        <NavLink key={item.to} to={item.to} end={item.end} onClick={onNavigate}
+          className={({ isActive }) => cn(
+            'group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-semibold transition',
+            isActive ? 'bg-white/15 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white',
+          )}>
+          {({ isActive }) => (
+            <>
+              {isActive && <span className="absolute left-0 top-1/2 h-4 w-1 -translate-y-1/2 rounded-r-full bg-white" />}
+              <item.icon className="h-[17px] w-[17px] shrink-0" />
+              <span className="truncate">{item.label}</span>
+            </>
+          )}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
+function UserCard({ user, role, onLogout }) {
+  return (
+    <div className="border-t border-white/10 p-3">
+      <div className="flex items-center gap-3 rounded-xl bg-white/5 p-2.5">
+        <Avatar name={`${user?.firstName || ''} ${user?.lastName || ''}`} src={user?.photo} size="sm" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-white">{user?.firstName} {user?.lastName}</p>
+          <p className="truncate text-[11px] text-white/50">{roleLabel(role)}</p>
+        </div>
+        <button onClick={onLogout} title="Log out"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white">
+          <LogOut className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function SKLayout() {
-  const { user, logout }          = useAuth()
-  const { mode, toggle } = useTheme()
-  const darkMode = mode === 'dark'
-  const toggleTheme = toggle
-  const navigate                  = useNavigate()
-  const location                  = useLocation()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [dark, toggleTheme] = useTheme();
+  const [drawer, setDrawer] = useState(false);
 
-  const handleLogout = () => {
-    logout()
-    toast.success('Signed out.')
-    navigate('/login')
-  }
+  const nav = navFor(user?.role);
+  const current = [...nav].sort((a, b) => b.to.length - a.to.length)
+    .find((i) => (i.end ? location.pathname === i.to : location.pathname.startsWith(i.to)));
+  const title = current?.label || 'SK Console';
 
-  const roleLabel = ROLE_LABEL[user?.role] || 'SK Official'
-
-  const pageTitles = {
-    '/sk/dashboard':     'Dashboard',
-    '/sk/announcements': 'Announcements',
-    '/sk/meetings':      'Meetings & Events',
-    '/sk/programs':      'Programs',
-    '/sk/finance':       'Budget & Finance',
-    '/sk/rewards':       'Rewards & Points',
-    '/sk/members':       'Member Directory',
-    '/sk/settings':      'Settings',
-  }
-  const currentTitle = pageTitles[location.pathname] || 'SK Portal'
+  const doLogout = () => { logout?.(); navigate('/login'); };
+  const sidebarBg = { background: 'linear-gradient(180deg,#3730a3 0%,#312e81 55%,#1e1b4b 100%)' };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
-
-      {sidebarOpen && (
-        <div onClick={() => setSidebarOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:100, backdropFilter:'blur(2px)' }} />
-      )}
-
-      {/* Sidebar */}
-      <aside className="sk-sidebar" style={{
-        width:232, flexShrink:0, background:'var(--bg-card)', borderRight:'1px solid var(--border)',
-        display:'flex', flexDirection:'column', position:'fixed', top:0, left:0, bottom:0, zIndex:110,
-        transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-        transition:'transform 200ms cubic-bezier(0.16,1,0.3,1)',
-        boxShadow: sidebarOpen ? 'var(--shadow-xl)' : 'none',
-      }}>
-
-        {/* Logo */}
-        <div style={{ padding:'14px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
-          <div style={{ width:34, height:34, flexShrink:0, background:'var(--blue-800)', borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(26,58,143,0.3)' }}>
-            <img src={skLogo} alt="SK" style={{ width:24, objectFit:'contain' }} />
-          </div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:'var(--blue-800)' }}>e-SK Manage</div>
-            <div style={{ fontSize:10, color:'var(--text-faint)', fontWeight:500 }}>SK Portal</div>
-          </div>
-          <button className="sk-close-btn" onClick={() => setSidebarOpen(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-faint)', display:'none', padding:4 }}>
-            <Icon name="x" size={16} />
-          </button>
-        </div>
-
-        {/* Role tag */}
-        <div style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 9px', borderRadius:6, background:'var(--blue-50)', border:'1px solid var(--blue-100)' }}>
-            <Icon name="shield" size={12} color="var(--blue-800)" />
-            <span style={{ fontSize:10, fontWeight:700, color:'var(--blue-800)', letterSpacing:'0.5px', textTransform:'uppercase' }}>
-              {roleLabel}
-            </span>
-          </div>
-        </div>
-
-        {/* Nav */}
-        <nav style={{ flex:1, overflowY:'auto', padding:'8px' }}>
-          <div style={{ fontSize:9, fontWeight:700, color:'var(--text-faint)', letterSpacing:'1px', padding:'8px 8px 4px', textTransform:'uppercase' }}>
-            Navigation
-          </div>
-          {NAV.map(item => {
-            const active = location.pathname === item.to
-            return (
-              <NavLink key={item.to} to={item.to} onClick={() => setSidebarOpen(false)}
-                style={{
-                  display:'flex', alignItems:'center', gap:9, padding:'8px 10px', borderRadius:8, marginBottom:1,
-                  fontSize:13, fontWeight: active?600:500, textDecoration:'none',
-                  background: active?'var(--blue-800)':'transparent',
-                  color: active?'white':'var(--text-muted)', transition:'all 140ms ease',
-                }}
-                onMouseEnter={e => { if(!active){ e.currentTarget.style.background='var(--bg-subtle)'; e.currentTarget.style.color='var(--text-base)' } }}
-                onMouseLeave={e => { if(!active){ e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--text-muted)' } }}>
-                <Icon name={item.icon} size={15} color={active?'rgba(255,255,255,0.9)':'var(--text-faint)'} />
-                {item.label}
-              </NavLink>
-            )
-          })}
-        </nav>
-
-        {/* User footer */}
-        <div style={{ padding:'8px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:9, padding:'9px 10px', borderRadius:8, background:'var(--bg-subtle)', marginBottom:4 }}>
-            <div className="avatar avatar-sm" style={{ background:'var(--blue-800)' }}>
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </div>
-            <div style={{ minWidth:0, flex:1 }}>
-              <div style={{ fontSize:12, fontWeight:600, color:'var(--text-base)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                {user?.firstName} {user?.lastName}
-              </div>
-              <div style={{ fontSize:10, color:'var(--text-faint)' }}>{roleLabel}</div>
-            </div>
-          </div>
-          <button onClick={handleLogout} style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'7px 10px', borderRadius:8, border:'none', background:'transparent', color:'var(--text-faint)', fontSize:13, fontWeight:500, cursor:'pointer', transition:'all 140ms ease' }}
-            onMouseEnter={e => { e.currentTarget.style.background='var(--red-50)'; e.currentTarget.style.color='var(--red-600)' }}
-            onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--text-faint)' }}>
-            <Icon name="logout" size={15} />
-            Sign Out
-          </button>
-        </div>
+    <div className="min-h-screen bg-bg">
+      {/* desktop sidebar */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col shadow-xl lg:flex" style={sidebarBg}>
+        <Brand />
+        <NavItems nav={nav} />
+        <UserCard user={user} role={user?.role} onLogout={doLogout} />
       </aside>
 
-      {/* Main */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
-        <header style={{ height:54, padding:'0 20px', display:'flex', alignItems:'center', justifyContent:'space-between', background:'var(--bg-card)', borderBottom:'1px solid var(--border)', flexShrink:0, boxShadow:'var(--shadow-xs)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <button className="sk-hamburger" onClick={() => setSidebarOpen(true)} style={{ background:'none', border:'none', cursor:'pointer', display:'none', alignItems:'center', color:'var(--text-muted)', padding:4 }}>
-              <Icon name="menu" size={20} />
-            </button>
-            <div style={{ fontSize:15, fontWeight:700, color:'var(--text-base)' }}>{currentTitle}</div>
+      {/* mobile drawer */}
+      {drawer && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawer(false)} />
+          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col" style={sidebarBg}>
+            <div className="flex items-center justify-between border-b border-white/10 pr-3">
+              <Brand />
+              <button onClick={() => setDrawer(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-white/70 hover:bg-white/10">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <NavItems nav={nav} onNavigate={() => setDrawer(false)} />
+            <UserCard user={user} role={user?.role} onLogout={doLogout} />
+          </aside>
+        </div>
+      )}
+
+      {/* main column */}
+      <div className="lg:pl-64">
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-surface/80 px-4 backdrop-blur sm:px-6">
+          <button onClick={() => setDrawer(true)} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface2 lg:hidden">
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-lg font-extrabold text-fg">{title}</h1>
+            <p className="hidden text-xs text-muted sm:block">Barangay Tawiran · Santa Cruz, Marinduque</p>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <button onClick={toggleTheme} style={{ width:34, height:34, border:'1px solid var(--border)', borderRadius:8, background:'var(--bg-subtle)', color:'var(--text-muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <Icon name={darkMode ? 'sun' : 'moon'} size={15} />
-            </button>
-            <div className="avatar avatar-sm" style={{ background:'var(--blue-800)', cursor:'pointer' }} title={`${user?.firstName} ${user?.lastName}`}>
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
+          <button onClick={toggleTheme} title="Toggle theme"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted transition hover:bg-surface2 hover:text-fg">
+            {dark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+          </button>
+          <div className="flex items-center gap-2.5 rounded-full border border-border bg-surface py-1 pl-1 pr-3">
+            <Avatar name={`${user?.firstName || ''} ${user?.lastName || ''}`} src={user?.photo} size="sm" />
+            <div className="hidden leading-tight sm:block">
+              <p className="max-w-[120px] truncate text-xs font-bold text-fg">{user?.firstName} {user?.lastName}</p>
+              <p className="text-[10px] text-muted">{roleLabel(user?.role)}</p>
             </div>
           </div>
         </header>
 
-        <main style={{ flex:1, overflowY:'auto', padding:'22px', background:'var(--bg)' }}>
+        <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
           <Outlet />
         </main>
       </div>
     </div>
-  )
+  );
 }

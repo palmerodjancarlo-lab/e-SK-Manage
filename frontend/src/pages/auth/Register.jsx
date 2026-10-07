@@ -1,300 +1,222 @@
-// auth/Register.jsx — sign up + email verification (6-digit code)
-import { useState, useRef, useEffect } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
-import toast from 'react-hot-toast'
-import skLogo from '../../assets/sk-logo.png'
-import authBg from '../../assets/auth-bg.svg'
+import { Fragment, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { Mail, User, Phone, MapPin, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import AuthLayout from '../../components/auth/AuthLayout';
+import PasswordField from '../../components/auth/PasswordField';
+import { Button, Input, Select } from '../../components/ui';
+import { useAuth } from '../../context/auth-store';
+import { cn } from '../../lib/utils';
 
-const C = {
-  night:'#1E1B4B', ink:'#0F1F5C', indigo:'#4F46E5', violet:'#7C3AED',
-  gold:'#EAB308', mist:'#F4F6FB', line:'#E7E9F2', slate:'#5A6478', faint:'#93A0B4',
-  rose:'#E11D48', emerald:'#059669',
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function ageFromBirth(birthDate) {
+  if (!birthDate) return null;
+  const diff = Date.now() - new Date(birthDate).getTime();
+  if (Number.isNaN(diff)) return null;
+  return Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000));
 }
-const field = { width:'100%', padding:'13px 14px', border:`1.5px solid ${C.line}`, borderRadius:12, fontSize:14.5, outline:'none', boxSizing:'border-box', fontFamily:'inherit', transition:'border 0.15s' }
-const lbl = { fontSize:12.5, fontWeight:700, color:C.ink, display:'block', marginBottom:7 }
 
-const emailLooksValid = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
+const EMPTY = {
+  firstName: '', lastName: '', email: '', password: '', confirm: '',
+  contactNumber: '', sex: '', birthDate: '', civilStatus: '', isPWD: false,
+  purok: '', address: '',
+};
+
+const STEPS = [
+  { n: 1, label: 'Account' },
+  { n: 2, label: 'Personal' },
+  { n: 3, label: 'Residency' },
+];
 
 export default function Register() {
-  const { register, verifyEmail, resendCode } = useAuth()
-  const navigate = useNavigate()
-  const location = useLocation()
-  const preVerifyEmail = location.state?.verifyEmail
+  const { register } = useAuth();
+  const navigate = useNavigate();
+  const [form, setForm] = useState(EMPTY);
+  const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [step, setStep] = useState(1);
 
-  const [step, setStep] = useState(preVerifyEmail ? 'verify' : 'form')
-  const [loading, setLoading] = useState(false)
-  const [showPass, setShowPass] = useState(false)
-  const [form, setForm] = useState({ firstName:'', lastName:'', email:preVerifyEmail||'', purok:'', address:'', password:'', confirm:'' })
-  const [errors, setErrors] = useState({})
+  const onChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setForm((f) => ({ ...f, [name]: type === 'checkbox' ? checked : value }));
+    setErrors((er) => ({ ...er, [name]: undefined }));
+  };
 
-  const validate = () => {
-    const e = {}
-    if (!form.firstName.trim()) e.firstName = 'Required'
-    if (!form.lastName.trim())  e.lastName = 'Required'
-    if (!form.email.trim())     e.email = 'Required'
-    else if (!emailLooksValid(form.email)) e.email = 'Enter a valid email address'
-    if (!form.purok.trim())     e.purok = 'Required'
-    if (!form.address.trim())   e.address = 'Required'
-    if (!form.password)         e.password = 'Required'
-    else if (form.password.length < 6) e.password = 'At least 6 characters'
-    if (form.confirm !== form.password) e.confirm = 'Passwords do not match'
-    setErrors(e)
-    return Object.keys(e).length === 0
-  }
+  const stepErrors = (s) => {
+    const er = {};
+    if (s === 1) {
+      if (!form.firstName.trim()) er.firstName = 'Required';
+      if (!form.lastName.trim()) er.lastName = 'Required';
+      if (!EMAIL_RE.test(form.email)) er.email = 'Enter a valid email address';
+      if (form.password.length < 6) er.password = 'At least 6 characters';
+      if (form.confirm !== form.password) er.confirm = 'Passwords do not match';
+    }
+    if (s === 2) {
+      if (!form.sex) er.sex = 'Required';
+      if (!form.birthDate) er.birthDate = 'Required';
+      else {
+        const age = ageFromBirth(form.birthDate);
+        if (age === null || age < 15 || age > 30) er.birthDate = 'SK membership is for ages 15–30';
+      }
+    }
+    if (s === 3) {
+      if (!form.purok.trim()) er.purok = 'Required';
+      if (!form.address.trim()) er.address = 'Required';
+    }
+    return er;
+  };
 
-  const submitForm = async (ev) => {
-    ev.preventDefault()
-    if (!validate()) return
-    setLoading(true)
+  const next = () => {
+    const er = stepErrors(step);
+    setErrors(er);
+    if (Object.keys(er).length) { toast.error('Please fix the highlighted fields.'); return; }
+    setStep((s) => Math.min(3, s + 1));
+  };
+  const back = () => setStep((s) => Math.max(1, s - 1));
+
+  const doSubmit = async () => {
+    for (const s of [1, 2, 3]) {
+      const er = stepErrors(s);
+      if (Object.keys(er).length) {
+        setStep(s); setErrors(er);
+        toast.error('Please fix the highlighted fields.');
+        return;
+      }
+    }
+    setSubmitting(true);
     try {
-      await register({
+      const payload = {
         firstName: form.firstName.trim(),
-        lastName:  form.lastName.trim(),
-        email:     form.email.trim().toLowerCase(),
-        purok:     form.purok.trim(),
-        address:   form.address.trim(),
-        password:  form.password,
-      })
-      toast.success('Code sent! Check your email.')
-      setStep('verify')
+        lastName: form.lastName.trim(),
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+        contactNumber: form.contactNumber.trim(),
+        sex: form.sex,
+        birthDate: form.birthDate,
+        civilStatus: form.civilStatus,
+        isPWD: form.isPWD,
+        purok: form.purok.trim(),
+        address: form.address.trim(),
+      };
+      const data = await register(payload);
+      toast.success('Verification code sent! Check your email.');
+      navigate('/verify', { state: { email: data.email || payload.email } });
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Could not create account.')
-    } finally { setLoading(false) }
-  }
+      toast.error(err.response?.data?.message || 'Registration failed. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onFormSubmit = (e) => { e.preventDefault(); if (step < 3) next(); else doSubmit(); };
 
   return (
-    <div style={{ minHeight:'100vh', display:'flex', fontFamily:"'Plus Jakarta Sans','Inter',sans-serif" }}>
-
-      <div className="reg-brand" style={{
-        flex:'1 1 46%', background:`url(${authBg}) center/cover, ${C.night}`,
-        color:'#fff', padding:'48px 52px', flexDirection:'column', justifyContent:'space-between', position:'relative', overflow:'hidden',
-      }}>
-        <div style={{ position:'absolute', top:-100, right:-80, width:320, height:320, borderRadius:'50%', border:'1px solid rgba(234,179,8,0.15)' }} />
-        <div style={{ position:'relative', display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ width:44, height:44, borderRadius:12, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <img src={skLogo} alt="SK" style={{ width:30, objectFit:'contain' }} />
-          </div>
-          <div>
-            <div style={{ fontSize:17, fontWeight:800 }}>e-SK Manage</div>
-            <div style={{ fontSize:12, color:'rgba(255,255,255,0.65)' }}>Barangay Tawiran</div>
-          </div>
-        </div>
-
-        <div style={{ position:'relative' }}>
-          <h1 style={{ fontSize:34, fontWeight:800, lineHeight:1.15, letterSpacing:'-1px', margin:'0 0 16px' }}>
-            Be part of your<br/><span style={{ color:C.gold }}>youth council.</span>
-          </h1>
-          <p style={{ fontSize:15, color:'rgba(255,255,255,0.78)', lineHeight:1.6, maxWidth:380 }}>
-            Join events, earn points for taking part, and see exactly how your SK serves the barangay.
-          </p>
-          <div style={{ marginTop:28, paddingLeft:16, borderLeft:`3px solid ${C.gold}` }}>
-            <p style={{ fontSize:17, fontWeight:700, color:'#fff', fontStyle:'italic', lineHeight:1.4, margin:0 }}>"Every young voice shapes Tawiran."</p>
-          </div>
-        </div>
-
-        <div style={{ position:'relative', fontSize:12.5, color:'rgba(255,255,255,0.5)' }}>
-          © {new Date().getFullYear()} Sangguniang Kabataan · Santa Cruz, Marinduque
-        </div>
-      </div>
-
-      <div style={{ flex:'1 1 54%', background:C.mist, display:'flex', alignItems:'center', justifyContent:'center', padding:'32px 20px' }}>
-        <div style={{ width:'100%', maxWidth:420 }}>
-
-          <div className="reg-mobile-logo" style={{ display:'none', marginBottom:24 }}>
-            <div style={{ background:`url(${authBg}) center/cover, ${C.night}`, borderRadius:18, padding:'26px 22px', position:'relative', overflow:'hidden' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:11, marginBottom:14 }}>
-                <div style={{ width:44, height:44, borderRadius:12, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
-                  <img src={skLogo} alt="SK" style={{ width:32, objectFit:'contain' }} />
-                </div>
-                <div>
-                  <div style={{ fontSize:16, fontWeight:800, color:'#fff' }}>e-SK Manage</div>
-                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)' }}>Barangay Tawiran</div>
-                </div>
+    <AuthLayout
+      title="Create your account"
+      subtitle="For the youth (ages 15–30) of Barangay Tawiran."
+      footer={
+        <>
+          Already have an account?{' '}
+          <Link to="/login" className="font-semibold text-primary hover:underline">Sign in</Link>
+        </>
+      }
+    >
+      {/* Stepper */}
+      <div className="mb-7 flex items-center">
+        {STEPS.map((s, i) => (
+          <Fragment key={s.n}>
+            <div className="flex flex-col items-center">
+              <div className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition',
+                step > s.n ? 'bg-primary text-primary-fg'
+                  : step === s.n ? 'bg-primary text-primary-fg ring-4 ring-primary/20'
+                    : 'bg-surface2 text-muted',
+              )}>
+                {step > s.n ? <Check className="h-4 w-4" /> : s.n}
               </div>
-              <p style={{ fontSize:14.5, fontWeight:700, color:'#fff', fontStyle:'italic', lineHeight:1.4, margin:0, borderLeft:`3px solid ${C.gold}`, paddingLeft:12 }}>"Every young voice shapes Tawiran."</p>
+              <span className={cn('mt-1.5 text-[11px] font-semibold', step >= s.n ? 'text-fg' : 'text-subtle')}>{s.label}</span>
             </div>
-          </div>
-
-          {step === 'form' ? (
-            <FormStep {...{ form, setForm, errors, showPass, setShowPass, loading, submitForm }} />
-          ) : (
-            <VerifyStep email={form.email.trim().toLowerCase()} firstName={form.firstName}
-              verifyEmail={verifyEmail} resendCode={resendCode} navigate={navigate}
-              onBack={()=>setStep('form')} />
-          )}
-        </div>
-      </div>
-
-      <style>{`
-        .reg-brand { display:flex; }
-        @media (max-width:820px) {
-          .reg-brand { display:none; }
-          .reg-mobile-logo { display:block !important; }
-        }
-      `}</style>
-    </div>
-  )
-}
-
-function FormStep({ form, setForm, errors, showPass, setShowPass, loading, submitForm }) {
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
-  const err = (k) => errors[k] && <p style={{ fontSize:11.5, color:C.rose, margin:'5px 0 0', fontWeight:600 }}>{errors[k]}</p>
-  const bd = (k) => ({ ...field, borderColor: errors[k] ? C.rose : C.line })
-
-  return (
-    <>
-      <h2 style={{ fontSize:26, fontWeight:800, color:C.ink, margin:'0 0 6px', letterSpacing:'-0.5px' }}>Create your account</h2>
-      <p style={{ fontSize:14, color:C.slate, margin:'0 0 26px' }}>For kabataan of Barangay Tawiran.</p>
-
-      <form onSubmit={submitForm} noValidate>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16 }}>
-          <div>
-            <label style={lbl}>First name</label>
-            <input style={bd('firstName')} value={form.firstName} onChange={set('firstName')} placeholder="Juan" />
-            {err('firstName')}
-          </div>
-          <div>
-            <label style={lbl}>Last name</label>
-            <input style={bd('lastName')} value={form.lastName} onChange={set('lastName')} placeholder="Dela Cruz" />
-            {err('lastName')}
-          </div>
-        </div>
-
-        <div style={{ marginBottom:16 }}>
-          <label style={lbl}>Email address</label>
-          <input type="email" style={bd('email')} value={form.email} onChange={set('email')} placeholder="you@email.com" />
-          {errors.email ? err('email') : <p style={{ fontSize:11.5, color:C.faint, margin:'5px 0 0' }}>We'll send a verification code here.</p>}
-        </div>
-
-        <div style={{ background:'#F4F6FB', borderRadius:12, padding:14, marginBottom:16, border:`1px solid ${C.line}` }}>
-          <div style={{ fontSize:11.5, fontWeight:700, color:C.ink, marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
-            📍 Residency in Barangay Tawiran
-          </div>
-          <div style={{ marginBottom:12 }}>
-            <label style={lbl}>Purok / Sitio</label>
-            <input style={bd('purok')} value={form.purok} onChange={set('purok')} placeholder="e.g. Purok 1" />
-            {err('purok')}
-          </div>
-          <div>
-            <label style={lbl}>Complete Address</label>
-            <input style={bd('address')} value={form.address} onChange={set('address')} placeholder="House no., street, Brgy. Tawiran" />
-            {err('address')}
-          </div>
-          <p style={{ fontSize:10.5, color:C.faint, margin:'8px 0 0', lineHeight:1.5 }}>This portal is for the youth of Barangay Tawiran only. Your details help the SK verify residency.</p>
-        </div>
-
-        <div style={{ marginBottom:16 }}>
-          <label style={lbl}>Password</label>
-          <div style={{ position:'relative' }}>
-            <input type={showPass?'text':'password'} style={bd('password')} value={form.password} onChange={set('password')} placeholder="At least 6 characters" />
-            <button type="button" onClick={()=>setShowPass(!showPass)} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', fontSize:12.5, color:C.indigo, fontWeight:700, cursor:'pointer' }}>{showPass?'Hide':'Show'}</button>
-          </div>
-          {err('password')}
-        </div>
-
-        <div style={{ marginBottom:24 }}>
-          <label style={lbl}>Confirm password</label>
-          <input type={showPass?'text':'password'} style={bd('confirm')} value={form.confirm} onChange={set('confirm')} placeholder="Re-enter password" />
-          {err('confirm')}
-        </div>
-
-        <button type="submit" disabled={loading} style={{
-          width:'100%', padding:'14px', background: loading ? C.faint : `linear-gradient(135deg,${C.indigo},${C.violet})`,
-          color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:700, cursor: loading ? 'default' : 'pointer',
-          boxShadow: loading ? 'none' : '0 8px 22px rgba(79,70,229,0.3)',
-        }}>{loading ? 'Sending code…' : 'Create account'}</button>
-      </form>
-
-      <p style={{ textAlign:'center', fontSize:13.5, color:C.slate, margin:'22px 0 0' }}>
-        Already have an account? <Link to="/login" style={{ color:C.indigo, fontWeight:700, textDecoration:'none' }}>Sign in</Link>
-      </p>
-    </>
-  )
-}
-
-function VerifyStep({ email, verifyEmail, resendCode, navigate, onBack }) {
-  const [digits, setDigits] = useState(['','','','','',''])
-  const [loading, setLoading] = useState(false)
-  const [cooldown, setCooldown] = useState(0)
-  const inputs = useRef([])
-
-  useEffect(() => { inputs.current[0]?.focus() }, [])
-  useEffect(() => {
-    if (cooldown <= 0) return
-    const t = setTimeout(() => setCooldown(cooldown - 1), 1000)
-    return () => clearTimeout(t)
-  }, [cooldown])
-
-  const code = digits.join('')
-
-  const setDigit = (i, val) => {
-    const v = val.replace(/\D/g, '').slice(-1)
-    const next = [...digits]; next[i] = v; setDigits(next)
-    if (v && i < 5) inputs.current[i+1]?.focus()
-  }
-  const onKey = (i, e) => {
-    if (e.key === 'Backspace' && !digits[i] && i > 0) inputs.current[i-1]?.focus()
-  }
-  const onPaste = (e) => {
-    e.preventDefault()
-    const p = e.clipboardData.getData('text').replace(/\D/g,'').slice(0,6).split('')
-    if (p.length) { const next = ['','','','','','']; p.forEach((d,i)=>next[i]=d); setDigits(next); inputs.current[Math.min(p.length,5)]?.focus() }
-  }
-
-  const submit = async () => {
-    if (code.length !== 6) return toast.error('Enter the full 6-digit code.')
-    setLoading(true)
-    try {
-      await verifyEmail(email, code)
-      toast.success('Verified! Welcome 🎉')
-      navigate('/kabataan', { replace:true })
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Verification failed.')
-      setDigits(['','','','','','']); inputs.current[0]?.focus()
-    } finally { setLoading(false) }
-  }
-
-  const resend = async () => {
-    if (cooldown > 0) return
-    try { await resendCode(email); toast.success('New code sent!'); setCooldown(30) }
-    catch (err) { toast.error(err.response?.data?.message || 'Could not resend.') }
-  }
-
-  return (
-    <>
-      <button onClick={onBack} style={{ background:'none', border:'none', color:C.slate, fontSize:13, fontWeight:600, cursor:'pointer', padding:0, marginBottom:20 }}>← Back</button>
-
-      <div style={{ width:56, height:56, borderRadius:16, background:'#EEF0FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, marginBottom:18 }}>📧</div>
-      <h2 style={{ fontSize:24, fontWeight:800, color:C.ink, margin:'0 0 8px', letterSpacing:'-0.5px' }}>Check your email</h2>
-      <p style={{ fontSize:14, color:C.slate, margin:'0 0 4px', lineHeight:1.6 }}>We sent a 6-digit code to</p>
-      <p style={{ fontSize:14, color:C.ink, fontWeight:700, margin:'0 0 26px' }}>{email}</p>
-
-      <div style={{ display:'flex', gap:8, marginBottom:22, justifyContent:'space-between' }} onPaste={onPaste}>
-        {digits.map((d, i) => (
-          <input key={i} ref={el=>inputs.current[i]=el} value={d} inputMode="numeric" maxLength={1}
-            onChange={e=>setDigit(i, e.target.value)} onKeyDown={e=>onKey(i, e)}
-            style={{
-              width:'100%', aspectRatio:'1', maxWidth:52, textAlign:'center', fontSize:24, fontWeight:800,
-              border:`1.5px solid ${d ? C.indigo : C.line}`, borderRadius:12, outline:'none', color:C.ink,
-              background: d ? '#F5F7FF' : '#fff', transition:'all 0.15s',
-            }} />
+            {i < STEPS.length - 1 && (
+              <div className={cn('mx-2 mb-5 h-0.5 flex-1 rounded transition', step > s.n ? 'bg-primary' : 'bg-border')} />
+            )}
+          </Fragment>
         ))}
       </div>
 
-      <button onClick={submit} disabled={loading || code.length !== 6} style={{
-        width:'100%', padding:'14px', border:'none', borderRadius:12, fontSize:15, fontWeight:700,
-        cursor: (loading || code.length !== 6) ? 'default' : 'pointer',
-        background: (loading || code.length !== 6) ? C.faint : `linear-gradient(135deg,${C.indigo},${C.violet})`,
-        color:'#fff', boxShadow: (loading || code.length !== 6) ? 'none' : '0 8px 22px rgba(79,70,229,0.3)',
-      }}>{loading ? 'Verifying…' : 'Verify & continue'}</button>
+      <form onSubmit={onFormSubmit} className="space-y-5">
+        {/* STEP 1 — Account */}
+        {step === 1 && (
+          <section className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input label="First name" name="firstName" value={form.firstName} onChange={onChange} error={errors.firstName} leftIcon={<User className="h-4 w-4" />} />
+              <Input label="Last name" name="lastName" value={form.lastName} onChange={onChange} error={errors.lastName} />
+            </div>
+            <Input label="Email" name="email" type="email" placeholder="you@email.com" value={form.email} onChange={onChange} error={errors.email} leftIcon={<Mail className="h-4 w-4" />} autoComplete="email" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <PasswordField label="Password" name="password" value={form.password} onChange={onChange} error={errors.password} autoComplete="new-password" showStrength />
+              <PasswordField label="Confirm password" name="confirm" value={form.confirm} onChange={onChange} error={errors.confirm} autoComplete="new-password" />
+            </div>
+          </section>
+        )}
 
-      <p style={{ textAlign:'center', fontSize:13.5, color:C.slate, margin:'22px 0 0' }}>
-        Didn't get it?{' '}
-        <button onClick={resend} disabled={cooldown>0} style={{ background:'none', border:'none', color: cooldown>0 ? C.faint : C.indigo, fontWeight:700, cursor: cooldown>0?'default':'pointer', fontFamily:'inherit', fontSize:13.5 }}>
-          {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}
-        </button>
-      </p>
-    </>
-  )
+        {/* STEP 2 — Personal details */}
+        {step === 2 && (
+          <section className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Select label="Sex" name="sex" value={form.sex} onChange={onChange} error={errors.sex}>
+                <option value="" disabled>Select…</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </Select>
+              <Input label="Birthdate" name="birthDate" type="date" value={form.birthDate} onChange={onChange} error={errors.birthDate} />
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Select label="Civil status" name="civilStatus" value={form.civilStatus} onChange={onChange}>
+                <option value="">Prefer not to say</option>
+                <option value="Single">Single</option>
+                <option value="Married">Married</option>
+                <option value="Widowed">Widowed</option>
+                <option value="Separated">Separated</option>
+              </Select>
+              <Input label="Contact number" name="contactNumber" value={form.contactNumber} onChange={onChange} placeholder="09XX XXX XXXX" leftIcon={<Phone className="h-4 w-4" />} />
+            </div>
+            <label className="flex items-center gap-3 rounded-xl border border-border bg-surface2/50 px-4 py-3">
+              <input type="checkbox" name="isPWD" checked={form.isPWD} onChange={onChange} className="h-4 w-4 rounded border-border text-primary focus:ring-primary/40" />
+              <span className="text-sm text-fg">I am a Person With Disability (PWD)</span>
+            </label>
+          </section>
+        )}
+
+        {/* STEP 3 — Residency */}
+        {step === 3 && (
+          <section className="space-y-4">
+            <Input label="Purok" name="purok" value={form.purok} onChange={onChange} error={errors.purok} placeholder="e.g. Purok 1" leftIcon={<MapPin className="h-4 w-4" />} />
+            <Input label="Complete address" name="address" value={form.address} onChange={onChange} error={errors.address} placeholder="House no., street, sitio" />
+            <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3">
+              <p className="text-xs text-muted">
+                After confirming your email, you'll upload a residency/ID photo for verification. Your SK Chairperson reviews it before your account is activated.
+              </p>
+            </div>
+          </section>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-3 pt-1">
+          {step > 1 && (
+            <Button type="button" variant="outline" onClick={back} className="flex-1">
+              <ChevronLeft className="h-4 w-4" /> Back
+            </Button>
+          )}
+          {step < 3 ? (
+            <Button type="button" onClick={next} className="flex-1">
+              Continue <ChevronRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button type="submit" loading={submitting} className="flex-1">Create account</Button>
+          )}
+        </div>
+      </form>
+    </AuthLayout>
+  );
 }

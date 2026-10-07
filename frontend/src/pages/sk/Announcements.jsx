@@ -1,127 +1,193 @@
-// sk/Announcements.jsx — Secretary & Chairperson manage; others view
-import { useState, useEffect } from 'react'
-import { useAuth } from '../../context/AuthContext'
-import axios from 'axios'
+// src/pages/sk/Announcements.jsx — SK announcements management
+// cspell:words kabataan Tawiran
+import { useMemo, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { Plus, Pencil, Trash2, Megaphone, Pin, PinOff, Link2, CalendarClock } from 'lucide-react';
+import api from '../../lib/api';
+import {
+  PageHeader, Card, CardContent, Spinner, Badge, Button, Input, Textarea, Select, Modal, EmptyState, Avatar,
+} from '../../components/ui';
+import { cn } from '../../lib/utils';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
+// Categories a person posts manually. "Programs" and "History" are system-managed
+// (auto-posted from a PPA, or archived when an event ends) — never hand-picked.
+const CREATE_CATS = ['General', 'Events', 'Opportunities', 'Reminder'];
+const TAB_ORDER = ['General', 'Events', 'Programs', 'Opportunities', 'Reminder', 'History'];
+const CAT_TONE = { General: 'default', Events: 'primary', Programs: 'accent', Opportunities: 'success', Reminder: 'warning', History: 'default' };
 
-const T = {
-  bg:'#F7F8FA', card:'#FFFFFF', ink:'#111827', slate:'#6B7280', faint:'#9CA3AF',
-  line:'#EEF0F3', indigo:'#4F46E5', indigoSoft:'#EEF0FF', emerald:'#059669', emeraldSoft:'#ECFDF5',
-  rose:'#E11D48', roseSoft:'#FFF1F3', amber:'#D97706', amberSoft:'#FFFBEB', sky:'#0284C7',
-}
-
-const CATEGORIES = {
-  general:  { label:'General',   color:T.indigo, bg:T.indigoSoft },
-  event:    { label:'Event',     color:T.sky,    bg:'#F0F9FF' },
-  urgent:   { label:'Urgent',    color:T.rose,   bg:T.roseSoft },
-  reminder: { label:'Reminder',  color:T.amber,  bg:T.amberSoft },
-}
-
-const field = { width:'100%', padding:'10px 12px', border:`1px solid ${T.line}`, borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box', fontFamily:'inherit' }
-const lbl   = { fontSize:11, fontWeight:700, color:T.slate, textTransform:'uppercase', letterSpacing:'0.4px', display:'block', marginBottom:6 }
+const asArray = (d) => (Array.isArray(d) ? d : d?.announcements || []);
+const fmt = (d) => (d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+const fmtLong = (d) => (d ? new Date(d).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }) : '');
+const sourceLabel = (t) => (t === 'meeting' ? 'Event' : t === 'program' ? 'Program' : null);
 
 export default function SKAnnouncements() {
-  const { user } = useAuth()
-  const canManage = ['sk_chairperson','sk_secretary'].includes(user?.role)
+  const qc = useQueryClient();
+  const [modal, setModal] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [del, setDel] = useState(null);
+  const [cat, setCat] = useState('all');
 
-  const [items,setItems]=useState([])
-  const [loading,setLoading]=useState(true)
-  const [modal,setModal]=useState(false)
-  const [msg,setMsg]=useState('')
+  const { data, isLoading } = useQuery({ queryKey: ['announcements'], queryFn: async () => (await api.get('/announcements')).data });
+  const refresh = () => qc.invalidateQueries({ queryKey: ['announcements'] });
 
-  const load=async()=>{
-    try{ const r=await axios.get(`${API}/announcements`); setItems(r.data.announcements||[]) }catch { /* ignore */ }
-    setLoading(false)
-  }
-  useEffect(()=>{ load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[])
+  const all = useMemo(() => {
+    const list = asArray(data);
+    return [...list].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0) || new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }, [data]);
 
-  const flash=m=>{ setMsg(m); setTimeout(()=>setMsg(''),3000) }
+  // Only show tabs for categories that actually have posts.
+  const tabs = useMemo(() => {
+    const present = new Set(all.map((a) => a.category));
+    return ['all', ...TAB_ORDER.filter((c) => present.has(c))];
+  }, [all]);
 
-  const remove=async(id)=>{
-    if(!window.confirm('Delete this announcement?')) return
-    await axios.delete(`${API}/announcements/${id}`)
-    flash('Announcement deleted.'); load()
-  }
+  const shown = cat === 'all' ? all : all.filter((a) => a.category === cat);
+
+  const pinM = useMutation({
+    mutationFn: (a) => api.put(`/announcements/${a._id}`, { isPinned: !a.isPinned }),
+    onSuccess: () => { refresh(); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
+  });
+  const delM = useMutation({
+    mutationFn: (id) => api.delete(`/announcements/${id}`),
+    onSuccess: () => { toast.success('Deleted.'); setDel(null); refresh(); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
+  });
 
   return (
-    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:T.ink }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12, marginBottom:22 }}>
-        <div>
-          <h1 style={{ fontSize:22, fontWeight:800, margin:0, letterSpacing:'-0.5px' }}>Announcements</h1>
-          <p style={{ fontSize:12.5, color:T.slate, marginTop:4 }}>
-            {canManage ? 'Post updates for SK members and kabataan.' : 'Latest updates from the SK.'}
-          </p>
-        </div>
-        {canManage && <button onClick={()=>setModal(true)} style={{ padding:'10px 16px', background:T.indigo, color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer' }}>+ New Announcement</button>}
+    <>
+      <PageHeader title="Announcements" description="Post news and reminders for the kabataan of Barangay Tawiran."
+        actions={<Button onClick={() => setModal({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New announcement</Button>} />
+
+      {/* Category filter */}
+      <div className="mb-5 flex flex-wrap gap-2">
+        {tabs.map((c) => (
+          <button key={c} onClick={() => setCat(c)}
+            className={cn('rounded-full px-3 py-1.5 text-xs font-bold transition',
+              cat === c ? 'bg-primary text-primary-fg' : 'border border-border bg-surface text-muted hover:text-fg')}>
+            {c === 'all' ? 'All' : c}
+          </button>
+        ))}
       </div>
 
-      {msg && <div style={{ background:T.emeraldSoft, border:'1px solid #A7F3D0', color:T.emerald, padding:'10px 16px', borderRadius:10, marginBottom:16, fontSize:13, fontWeight:600 }}>✓ {msg}</div>}
-
-      {loading ? <div style={{ textAlign:'center', padding:60, color:T.faint }}>Loading...</div>
-        : items.length===0 ? (
-          <div style={{ textAlign:'center', padding:60, background:T.card, border:`1px dashed ${T.line}`, borderRadius:14 }}>
-            <div style={{ fontSize:36, marginBottom:10 }}>📢</div>
-            <p style={{ fontSize:14, fontWeight:600, margin:'0 0 4px' }}>No announcements yet</p>
-            <p style={{ fontSize:12, color:T.slate, margin:0 }}>{canManage?'Post the first one.':'Check back later.'}</p>
-          </div>
-        ) : (
-        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-          {items.map(a=>{
-            const cat=CATEGORIES[a.category]||CATEGORIES.general
-            return (
-              <div key={a._id} style={{ background:T.card, border:`1px solid ${T.line}`, borderRadius:14, padding:20, borderLeft:`4px solid ${cat.color}` }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12, marginBottom:8 }}>
-                  <div style={{ flex:1 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
-                      <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:999, background:cat.bg, color:cat.color, textTransform:'uppercase' }}>{cat.label}</span>
-                      <span style={{ fontSize:11, color:T.faint }}>{new Date(a.createdAt).toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'})}</span>
+      {isLoading ? <div className="flex justify-center py-16"><Spinner className="h-7 w-7 text-primary" /></div>
+        : shown.length === 0 ? <EmptyState icon={Megaphone} title="No announcements" description="Post your first announcement for the kabataan." action={<Button onClick={() => setModal({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New announcement</Button>} />
+        : (
+          <div className="space-y-3">
+            {shown.map((a) => {
+              const src = sourceLabel(a.sourceType);
+              return (
+                <Card key={a._id} className={cn('transition hover:border-primary/40', a.isPinned && 'border-primary/40')}>
+                  <CardContent>
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary"><Megaphone className="h-5 w-5" /></span>
+                      <button type="button" onClick={() => setDetail(a)} className="min-w-0 flex-1 text-left">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={CAT_TONE[a.category] || 'default'}>{a.category}</Badge>
+                          {a.isPinned && <span className="inline-flex items-center gap-1 rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-bold text-primary"><Pin className="h-3 w-3" /> Pinned</span>}
+                          {src && <Badge variant="info"><Link2 className="h-3 w-3" /> From {src}</Badge>}
+                        </div>
+                        <h3 className="mt-1 font-bold text-fg">{a.title}</h3>
+                        <p className="mt-0.5 line-clamp-2 text-sm text-muted">{a.content}</p>
+                        <div className="mt-2 flex items-center gap-2 text-xs text-subtle">
+                          {a.author && <Avatar name={`${a.author.firstName || ''} ${a.author.lastName || ''}`} src={a.author.photo} size="xs" />}
+                          <span>{a.author ? `${a.author.firstName} ${a.author.lastName}` : 'SK'} · {fmt(a.createdAt)}</span>
+                        </div>
+                      </button>
+                      <div className="flex shrink-0 gap-1">
+                        <Button size="sm" variant="ghost" title={a.isPinned ? 'Unpin' : 'Pin'} loading={pinM.isPending && pinM.variables?._id === a._id} onClick={() => pinM.mutate(a)}>
+                          {a.isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                        </Button>
+                        {a.sourceType === 'manual' || !a.sourceType ? (
+                          <Button size="sm" variant="ghost" onClick={() => setModal({ mode: 'edit', data: a })}><Pencil className="h-4 w-4" /></Button>
+                        ) : null}
+                        <Button size="sm" variant="ghost" className="text-danger hover:bg-danger/10" onClick={() => setDel(a)}><Trash2 className="h-4 w-4" /></Button>
+                      </div>
                     </div>
-                    <h3 style={{ fontSize:16, fontWeight:700, margin:'0 0 6px' }}>{a.title}</h3>
-                    <p style={{ fontSize:13, color:T.slate, margin:0, lineHeight:1.6 }}>{a.content}</p>
-                  </div>
-                  {canManage && <button onClick={()=>remove(a._id)} style={{ padding:'5px 12px', fontSize:11, fontWeight:700, border:`1px solid ${T.line}`, borderRadius:8, background:'#fff', color:T.rose, cursor:'pointer', flexShrink:0 }}>Delete</button>}
-                </div>
-                {a.author && <div style={{ fontSize:11, color:T.faint, marginTop:8 }}>Posted by {a.author.firstName} {a.author.lastName}</div>}
-              </div>
-            )
-          })}
-        </div>
-      )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
 
-      {modal && <AnnouncementModal onClose={()=>setModal(false)} onSaved={()=>{setModal(false);load();flash('Announcement posted.')}}/>}
-    </div>
-  )
+      {modal && <AnnForm modal={modal} onClose={() => setModal(null)} onDone={() => { setModal(null); refresh(); }} />}
+
+      <AnnDetail ann={detail} onClose={() => setDetail(null)} />
+
+      <Modal open={!!del} onClose={() => setDel(null)} title="Delete announcement"
+        footer={<><Button variant="ghost" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" loading={delM.isPending} onClick={() => delM.mutate(del._id)}>Delete</Button></>}>
+        <p className="text-sm text-muted">Delete “{del?.title}”?</p>
+      </Modal>
+    </>
+  );
 }
 
-function AnnouncementModal({ onClose, onSaved }) {
-  const [f,setF]=useState({ title:'', content:'', category:'general' })
-  const [saving,setSaving]=useState(false)
-  const save=async()=>{
-    setSaving(true)
-    try{ await axios.post(`${API}/announcements`,f); onSaved() }
-    catch(e){ alert(e.response?.data?.message||'Error') } finally{ setSaving(false) }
-  }
+function AnnDetail({ ann, onClose }) {
+  if (!ann) return null;
+  const src = sourceLabel(ann.sourceType);
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100, padding:20 }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:500 }}>
-        <div style={{ padding:'18px 24px', borderBottom:`1px solid ${T.line}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <h3 style={{ fontSize:16, fontWeight:700, margin:0 }}>New Announcement</h3>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:T.slate, cursor:'pointer' }}>×</button>
+    <Modal open onClose={onClose} size="md" title={ann.title}
+      footer={<Button variant="ghost" onClick={onClose}>Close</Button>}>
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={CAT_TONE[ann.category] || 'default'}>{ann.category}</Badge>
+          {ann.isPinned && <span className="inline-flex items-center gap-1 rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-bold text-primary"><Pin className="h-3 w-3" /> Pinned</span>}
+          {src && <Badge variant="info"><Link2 className="h-3 w-3" /> From {src}</Badge>}
         </div>
-        <div style={{ padding:24, display:'flex', flexDirection:'column', gap:14 }}>
-          <div><label style={lbl}>Title</label><input style={field} value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="Announcement title" /></div>
-          <div><label style={lbl}>Category</label>
-            <select style={field} value={f.category} onChange={e=>setF({...f,category:e.target.value})}>
-              {Object.entries(CATEGORIES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-            </select>
-          </div>
-          <div><label style={lbl}>Content</label><textarea style={{...field,minHeight:120,resize:'vertical'}} value={f.content} onChange={e=>setF({...f,content:e.target.value})} placeholder="Write the announcement..." /></div>
-          <button onClick={save} disabled={saving||!f.title||!f.content} style={{ padding:'11px', background:T.indigo, color:'#fff', border:'none', borderRadius:9, fontSize:13, fontWeight:700, cursor:'pointer', opacity:saving||!f.title||!f.content?0.6:1 }}>{saving?'Posting...':'Post Announcement'}</button>
+
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{ann.content}</p>
+
+        <div className="flex items-center gap-2 border-t border-border pt-3 text-xs text-subtle">
+          <CalendarClock className="h-4 w-4" />
+          <span>{ann.author ? `Posted by ${ann.author.firstName} ${ann.author.lastName} · ` : ''}{fmtLong(ann.createdAt)}</span>
         </div>
+
+        {src && (
+          <p className="rounded-lg bg-surface2/60 px-3 py-2 text-xs text-muted">
+            This announcement was posted automatically from a {src.toLowerCase()}. It updates and is removed together with that {src.toLowerCase()}.
+          </p>
+        )}
       </div>
-    </div>
-  )
+    </Modal>
+  );
+}
+
+function AnnForm({ modal, onClose, onDone }) {
+  const isEdit = modal.mode === 'edit';
+  const d = modal.data;
+  const [form, setForm] = useState({
+    title: d.title || '', content: d.content || '', category: d.category || 'General', isPinned: d.isPinned ?? false,
+  });
+  const on = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+  const m = useMutation({
+    mutationFn: (p) => (isEdit ? api.put(`/announcements/${d._id}`, p) : api.post('/announcements', p)),
+    onSuccess: () => { toast.success(isEdit ? 'Updated.' : 'Posted.'); onDone(); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
+  });
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.title.trim() || !form.content.trim()) return toast.error('Title and content are required.');
+    m.mutate({ ...form, isPinned: !!form.isPinned });
+  };
+  // Keep a system-only category selectable when editing so it isn't lost.
+  const cats = CREATE_CATS.includes(form.category) ? CREATE_CATS : [form.category, ...CREATE_CATS];
+  return (
+    <Modal open onClose={onClose} title={isEdit ? 'Edit announcement' : 'New announcement'} size="lg"
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={m.isPending} onClick={submit}>{isEdit ? 'Save' : 'Post'}</Button></>}>
+      <form onSubmit={submit} className="space-y-4">
+        <Input label="Title" name="title" value={form.title} onChange={on} />
+        <Textarea label="Content" name="content" value={form.content} onChange={on} rows={5} />
+        <Select label="Category" name="category" value={form.category} onChange={on}>
+          {cats.map((c) => <option key={c}>{c}</option>)}
+        </Select>
+        <label className="flex items-center gap-3 rounded-xl border border-border bg-surface2/50 px-4 py-3">
+          <input type="checkbox" checked={form.isPinned} onChange={(e) => setForm((f) => ({ ...f, isPinned: e.target.checked }))}
+            className="h-4 w-4 rounded border-border text-primary focus:ring-primary/40" />
+          <span className="text-sm text-fg">Pin to top</span>
+        </label>
+      </form>
+    </Modal>
+  );
 }

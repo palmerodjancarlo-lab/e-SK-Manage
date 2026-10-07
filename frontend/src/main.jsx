@@ -1,32 +1,25 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.jsx'
-import { AuthProvider }  from './context/AuthContext.jsx'
-import { ThemeProvider } from './context/ThemeContext.jsx'
+import { BrowserRouter } from 'react-router-dom'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
+import { queryClient } from './lib/queryClient'
+import { ThemeProvider } from './context/ThemeProvider'
+import { AuthProvider } from './context/AuthProvider'
+import App from './App'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <ThemeProvider>
-      <AuthProvider>
-        <App />
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 3000,
-            style: {
-              background: 'var(--bg-card)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border)',
-              borderRadius: '12px',
-              fontFamily: 'Plus Jakarta Sans',
-              fontSize: '14px',
-              fontWeight: '600'
-            }
-          }}
-        />
-      </AuthProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <App />
+            <Toaster position="top-right" toastOptions={{ style:{ fontSize:'13px', fontWeight:600 } }} />
+          </BrowserRouter>
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   </React.StrictMode>
 )

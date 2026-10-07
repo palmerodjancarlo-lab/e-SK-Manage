@@ -1,254 +1,310 @@
-// sk/Meetings.jsx — SK meetings/events management + QR activation
-// SK creates meetings (auto-generates QR token), activates the QR at event time,
-// and displays a full-screen QR for kabataan to scan and earn points.
+// src/pages/sk/Meetings.jsx — SK meetings & events management
+// cspell:words kabataan kagawad Tawiran saloobin checkins barangay
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import {
+  Plus, Pencil, Trash2, QrCode, Users, MessageSquare, CalendarDays, MapPin, Star, Power, X, HandHeart,
+} from 'lucide-react';
+import api from '../../lib/api';
+import {
+  PageHeader, Card, CardContent, Spinner, Badge, Button, Input, Textarea, Select, Modal, EmptyState, Avatar,
+} from '../../components/ui';
+import { cn } from '../../lib/utils';
 
-import { useState, useEffect } from 'react'
-import { useAuth } from '../../context/AuthContext'
-import { QRCodeCanvas } from 'qrcode.react'
-import axios from 'axios'
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'
-
-const T = {
-  bg:'#F7F8FA', card:'#FFFFFF', ink:'#111827', slate:'#6B7280', faint:'#9CA3AF',
-  line:'#EEF0F3', indigo:'#4F46E5', indigoSoft:'#EEF0FF',
-  emerald:'#059669', emeraldSoft:'#ECFDF5', amber:'#D97706', amberSoft:'#FFFBEB',
-  rose:'#E11D48', roseSoft:'#FFF1F3',
-}
-
-const field = { width:'100%', padding:'10px 12px', border:`1px solid ${T.line}`, borderRadius:8, fontSize:13, outline:'none', boxSizing:'border-box', fontFamily:'inherit' }
-const lbl   = { fontSize:11, fontWeight:700, color:T.slate, textTransform:'uppercase', letterSpacing:'0.4px', display:'block', marginBottom:6 }
-
-const SK_MANAGE = ['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad','admin']
+const TYPES = ['Meeting', 'Workshop', 'Event', 'Seminar', 'Livelihood', 'Sports'];
+const asArray = (d) => (Array.isArray(d) ? d : d?.meetings || []);
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '');
+const qrSrc = (token) => `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(token || '')}`;
 
 export default function SKMeetings() {
-  const { user } = useAuth()
-  const canManage = SK_MANAGE.includes(user?.role)
+  const qc = useQueryClient();
+  const [filter, setFilter] = useState('upcoming');
+  const [form, setForm] = useState(null);
+  const [del, setDel] = useState(null);
+  const [qr, setQr] = useState(null);
+  const [manage, setManage] = useState(null);
 
-  const [items,setItems]=useState([])
-  const [loading,setLoading]=useState(true)
-  const [modal,setModal]=useState(false)
-  const [qrMeeting,setQrMeeting]=useState(null)
-  const [msg,setMsg]=useState('')
+  const { data, isLoading } = useQuery({ queryKey: ['meetings'], queryFn: async () => (await api.get('/meetings')).data });
+  const nowQ = useQuery({ queryKey: ['now'], queryFn: async () => Date.now() });
+  const now = nowQ.data || 0;
+  const refresh = () => qc.invalidateQueries({ queryKey: ['meetings'] });
 
-  const load = async () => {
-    try{ const r=await axios.get(`${API}/meetings`); setItems((r.data.meetings||[]).sort((a,b)=>new Date(b.date)-new Date(a.date))) }catch{ /* ignore */ }
-    setLoading(false)
-  }
-  useEffect(()=>{
-    let active = true
-    axios.get(`${API}/meetings`)
-      .then(r=>{ if(active) setItems((r.data.meetings||[]).sort((a,b)=>new Date(b.date)-new Date(a.date))) })
-      .catch(()=>{})
-      .finally(()=>{ if(active) setLoading(false) })
-    return ()=>{ active=false }
-  },[])
-  const flash=(m)=>{ setMsg(m); setTimeout(()=>setMsg(''),3000) }
+  const meetings = asArray(data).map((m) => ({ ...m, _past: new Date(m.date).getTime() < now }))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  const shown = meetings.filter((m) => (filter === 'past' ? m._past : !m._past));
+  const upcomingCount = meetings.filter((m) => !m._past).length;
 
-  const del = async (id) => {
-    if(!confirm('Delete this meeting?')) return
-    await axios.delete(`${API}/meetings/${id}`); flash('Meeting deleted.'); load()
-  }
-
-  const now = new Date()
-  const upcoming = items.filter(m=>new Date(m.date)>=now)
-  const past     = items.filter(m=>new Date(m.date)<now)
+  const delM = useMutation({
+    mutationFn: (id) => api.delete(`/meetings/${id}`),
+    onSuccess: () => { toast.success('Deleted.'); setDel(null); refresh(); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
+  });
 
   return (
-    <div style={{ fontFamily:"'Inter','Segoe UI',sans-serif", color:T.ink }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12, marginBottom:20 }}>
-        <div>
-          <h1 style={{ fontSize:22, fontWeight:800, margin:0, letterSpacing:'-0.5px' }}>Meetings & Events</h1>
-          <p style={{ fontSize:12.5, color:T.slate, margin:'4px 0 0' }}>Create events and activate QR check-in so kabataan earn points.</p>
-        </div>
-        {canManage && <button onClick={()=>setModal(true)} style={{ padding:'9px 16px', background:T.indigo, color:'#fff', border:'none', borderRadius:10, fontSize:12.5, fontWeight:600, cursor:'pointer' }}>+ New Meeting</button>}
-      </div>
+    <>
+      <PageHeader title="Meetings & Events" description="Schedule events, activate QR check-in, and track attendance."
+        actions={<Button onClick={() => setForm({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New event</Button>} />
 
-      {msg && <div style={{ background:T.emeraldSoft, border:'1px solid #A7F3D0', color:T.emerald, padding:'10px 16px', borderRadius:10, marginBottom:16, fontSize:13, fontWeight:600 }}>✓ {msg}</div>}
-
-      {loading ? <p style={{ textAlign:'center', color:T.faint, padding:40 }}>Loading…</p> : (
-        <>
-          {/* Upcoming */}
-          <h2 style={{ fontSize:14, fontWeight:700, color:T.slate, margin:'0 0 12px' }}>Upcoming ({upcoming.length})</h2>
-          {upcoming.length===0
-            ? <div style={{ background:T.card, border:`1px dashed ${T.line}`, borderRadius:14, padding:30, textAlign:'center', color:T.faint, fontSize:13, marginBottom:24 }}>No upcoming meetings</div>
-            : <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:28 }}>
-                {upcoming.map(m=><MeetingCard key={m._id} m={m} canManage={canManage} onDelete={()=>del(m._id)} onShowQR={()=>setQrMeeting(m)} onRefreshed={load} flash={flash} />)}
-              </div>}
-
-          {/* Past */}
-          {past.length>0 && <>
-            <h2 style={{ fontSize:14, fontWeight:700, color:T.slate, margin:'0 0 12px' }}>Past ({past.length})</h2>
-            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-              {past.map(m=><MeetingCard key={m._id} m={m} canManage={canManage} onDelete={()=>del(m._id)} onShowQR={()=>setQrMeeting(m)} onRefreshed={load} flash={flash} />)}
-            </div>
-          </>}
-        </>
-      )}
-
-      {modal && <MeetingModal onClose={()=>setModal(false)} onSaved={()=>{ setModal(false); load(); flash('Meeting created with QR ready.') }} />}
-      {qrMeeting && <QRModal meeting={qrMeeting} onClose={()=>{ setQrMeeting(null); load() }} flash={flash} />}
-    </div>
-  )
-}
-
-function MeetingCard({ m, canManage, onDelete, onShowQR }) {
-  const d = new Date(m.date)
-  const pts = m.pointsReward || m.points || 0
-  return (
-    <div style={{ background:T.card, border:`1px solid ${T.line}`, borderRadius:14, padding:16, display:'flex', gap:16, alignItems:'center' }}>
-      <div style={{ width:56, height:56, borderRadius:12, background:T.indigoSoft, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-        <span style={{ fontSize:20, fontWeight:800, color:T.indigo, lineHeight:1 }}>{d.getDate()}</span>
-        <span style={{ fontSize:10, color:T.slate, textTransform:'uppercase' }}>{d.toLocaleDateString('en-PH',{month:'short'})}</span>
-      </div>
-      <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <h3 style={{ fontSize:15, fontWeight:700, margin:0 }}>{m.title}</h3>
-          {m.qrActive && <span style={{ fontSize:9, fontWeight:700, padding:'2px 8px', borderRadius:999, background:T.emeraldSoft, color:T.emerald }}>QR LIVE</span>}
-        </div>
-        <p style={{ fontSize:12, color:T.faint, margin:'4px 0 0' }}>
-          {d.toLocaleDateString('en-PH',{weekday:'short',month:'long',day:'numeric'})} · {d.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'})}
-          {m.location && ` · ${m.location}`}{pts>0 && ` · ⭐ ${pts} pts`}
-        </p>
-      </div>
-      {canManage && (
-        <div style={{ display:'flex', gap:6, flexShrink:0 }}>
-          <button onClick={onShowQR} style={{ padding:'8px 14px', background:m.qrActive?T.emerald:T.indigo, color:'#fff', border:'none', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer' }}>
-            {m.qrActive?'Show QR':'Activate QR'}
+      <div className="mb-5 inline-flex rounded-xl border border-border bg-surface p-1">
+        {[{ k: 'upcoming', label: `Upcoming${upcomingCount ? ` · ${upcomingCount}` : ''}` }, { k: 'past', label: 'Past' }].map((t) => (
+          <button key={t.k} onClick={() => setFilter(t.k)}
+            className={cn('rounded-lg px-4 py-1.5 text-sm font-semibold transition', filter === t.k ? 'bg-primary text-primary-fg' : 'text-muted hover:text-fg')}>
+            {t.label}
           </button>
-          <button onClick={onDelete} style={{ padding:'8px 12px', background:T.roseSoft, color:T.rose, border:'none', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer' }}>Delete</button>
-        </div>
-      )}
-    </div>
-  )
+        ))}
+      </div>
+
+      {isLoading ? <div className="flex justify-center py-16"><Spinner className="h-7 w-7 text-primary" /></div>
+        : shown.length === 0 ? <EmptyState icon={CalendarDays} title={`No ${filter} events`} description="Create an event for the kabataan to join." action={<Button onClick={() => setForm({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New event</Button>} />
+        : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {shown.map((m) => {
+              const live = m.qrActive && !m._past;
+              const volCount = (m.volunteers || []).length;
+              return (
+                <Card key={m._id}>
+                  <CardContent>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="primary">{m.type}</Badge>
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-accent"><Star className="h-3 w-3" /> +{m.pointsReward ?? 10}</span>
+                        {live && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> QR live</span>}
+                        {m.needsVolunteers && <span className="inline-flex items-center gap-1 text-[11px] font-bold text-accent"><HandHeart className="h-3 w-3" /> {volCount}{m.volunteerSlots ? `/${m.volunteerSlots}` : ''}</span>}
+                      </div>
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => setForm({ mode: 'edit', data: m })}><Pencil className="h-4 w-4" /></Button>
+                        <Button size="sm" variant="ghost" className="text-danger hover:bg-danger/10" onClick={() => setDel(m)}><Trash2 className="h-4 w-4" /></Button>
+                      </div>
+                    </div>
+                    <h3 className="mt-1.5 font-bold text-fg">{m.title}</h3>
+                    <p className="mt-0.5 flex items-center gap-1 text-sm text-muted"><CalendarDays className="h-3.5 w-3.5" /> {fmtDate(m.date)}{m.time ? ` · ${m.time}` : ''}</p>
+                    {m.venue && <p className="flex items-center gap-1 text-sm text-subtle"><MapPin className="h-3.5 w-3.5" /> {m.venue}{m.municipality ? `, ${m.municipality}` : ''}</p>}
+                    {m.description && <p className="mt-1 line-clamp-2 text-sm text-muted">{m.description}</p>}
+
+                    <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
+                      <Button size="sm" variant={live ? 'primary' : 'outline'} onClick={() => setQr(m)}><QrCode className="h-4 w-4" /> {live ? 'QR active' : 'QR check-in'}</Button>
+                      <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'checkins' })}><Users className="h-4 w-4" /> Attendance</Button>
+                      {m.needsVolunteers && <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'volunteers' })}><HandHeart className="h-4 w-4" /> Volunteers</Button>}
+                      <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'comments' })}><MessageSquare className="h-4 w-4" /> Saloobin</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+      {form && <MeetingForm modal={form} onClose={() => setForm(null)} onDone={() => { setForm(null); refresh(); }} />}
+      {qr && <QRModal meeting={qr} onClose={() => setQr(null)} onChange={refresh} />}
+      {manage && <ManageModal id={manage.id} initialTab={manage.tab} onClose={() => setManage(null)} />}
+
+      <Modal open={!!del} onClose={() => setDel(null)} title="Delete event"
+        footer={<><Button variant="ghost" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" loading={delM.isPending} onClick={() => delM.mutate(del._id)}>Delete</Button></>}>
+        <p className="text-sm text-muted">Delete “{del?.title}”?</p>
+      </Modal>
+    </>
+  );
 }
 
-// ── QR full-screen display ──
-function QRModal({ meeting, onClose, flash }) {
-  const [qr,setQr]=useState({ token:meeting.qrToken, active:meeting.qrActive })
-  const [duration,setDuration]=useState(60)
-  const [checkins,setCheckins]=useState([])
-  const [loading,setLoading]=useState(false)
+function MeetingForm({ modal, onClose, onDone }) {
+  const isEdit = modal.mode === 'edit';
+  const d = modal.data;
+  const [form, setForm] = useState({
+    title: d.title || '', type: d.type || 'Meeting',
+    date: d.date ? d.date.slice(0, 10) : '', time: d.time || '',
+    venue: d.venue || '', municipality: d.municipality || 'Santa Cruz',
+    agenda: d.agenda || '', description: d.description || '',
+    pointsReward: d.pointsReward ?? 10,
+    needsVolunteers: !!d.needsVolunteers, volunteerRole: d.volunteerRole || '', volunteerSlots: d.volunteerSlots ?? 0,
+  });
+  const on = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+  const m = useMutation({
+    mutationFn: (p) => (isEdit ? api.put(`/meetings/${d._id}`, p) : api.post('/meetings', p)),
+    onSuccess: () => { toast.success(isEdit ? 'Updated.' : 'Event created.'); onDone(); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
+  });
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.title || !form.date) return toast.error('Title and date are required.');
+    m.mutate({ ...form, pointsReward: Number(form.pointsReward) || 0, volunteerSlots: Number(form.volunteerSlots) || 0 });
+  };
+  return (
+    <Modal open onClose={onClose} title={isEdit ? 'Edit event' : 'New event'} size="lg"
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={m.isPending} onClick={submit}>{isEdit ? 'Save' : 'Create'}</Button></>}>
+      <form onSubmit={submit} className="space-y-4">
+        <Input label="Title" name="title" value={form.title} onChange={on} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Select label="Type" name="type" value={form.type} onChange={on}>{TYPES.map((t) => <option key={t}>{t}</option>)}</Select>
+          <Input label="Points reward" name="pointsReward" type="number" value={form.pointsReward} onChange={on} />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input label="Date" name="date" type="date" value={form.date} onChange={on} />
+          <Input label="Time" name="time" value={form.time} onChange={on} placeholder="e.g. 9:00 AM" />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input label="Venue" name="venue" value={form.venue} onChange={on} placeholder="e.g. SK Session Hall" />
+          <Input label="Municipality" name="municipality" value={form.municipality} onChange={on} />
+        </div>
+        <Textarea label="Agenda" name="agenda" value={form.agenda} onChange={on} rows={2} />
+        <Textarea label="Description" name="description" value={form.description} onChange={on} rows={2} />
 
-  const loadCheckins = async () => {
-    try{ const r=await axios.get(`${API}/meetings/${meeting._id}/checkins`); setCheckins(r.data.checkins||r.data.attendees||[]) }catch{ /* ignore */ }
-  }
-  useEffect(()=>{ loadCheckins(); const t=setInterval(loadCheckins,5000); return ()=>clearInterval(t) },[]) // eslint-disable-line
+        {/* Volunteer sign-up */}
+        <div className="space-y-3 rounded-xl border border-border p-3">
+          <label className="flex items-center gap-2 text-sm font-semibold text-fg">
+            <input type="checkbox" checked={form.needsVolunteers}
+              onChange={(e) => setForm((f) => ({ ...f, needsVolunteers: e.target.checked }))}
+              className="h-4 w-4 rounded border-border text-primary focus:ring-primary" />
+            <HandHeart className="h-4 w-4 text-accent" /> This event needs volunteers
+          </label>
+          {form.needsVolunteers && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input label="Volunteer role / task" name="volunteerRole" value={form.volunteerRole} onChange={on} placeholder="e.g. Registration & crowd control" />
+              <Input label="Slots (0 = unlimited)" name="volunteerSlots" type="number" value={form.volunteerSlots} onChange={on} />
+            </div>
+          )}
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
-  const activate = async () => {
-    setLoading(true)
-    try{
-      const r=await axios.post(`${API}/meetings/${meeting._id}/generate-qr`,{ durationMinutes:Number(duration) })
-      setQr({ token:r.data.qrToken, active:true }); flash('QR activated!')
-    }catch(e){ alert(e.response?.data?.message||'Error') } finally{ setLoading(false) }
-  }
-  const deactivate = async () => {
-    setLoading(true)
-    try{ await axios.put(`${API}/meetings/${meeting._id}/deactivate-qr`); setQr(q=>({...q,active:false})); flash('QR deactivated.') }
-    catch(e){ alert(e.response?.data?.message||'Error') } finally{ setLoading(false) }
-  }
+function QRModal({ meeting, onClose, onChange }) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({ queryKey: ['meeting', meeting._id], queryFn: async () => (await api.get(`/meetings/${meeting._id}`)).data.meeting });
+  const [duration, setDuration] = useState(120);
+  const m = data || meeting;
+  const live = m.qrActive;
 
-  // The value kabataan scans — the token itself
-  const qrValue = qr.token || ''
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['meeting', meeting._id] }); onChange?.(); };
+  const genM = useMutation({
+    mutationFn: () => api.post(`/meetings/${meeting._id}/generate-qr`, { durationMinutes: Number(duration) }),
+    onSuccess: () => { toast.success('QR check-in activated.'); refresh(); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
+  });
+  const offM = useMutation({
+    mutationFn: () => api.put(`/meetings/${meeting._id}/deactivate-qr`),
+    onSuccess: () => { toast.success('QR deactivated. Event ended.'); refresh(); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
+  });
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:200, padding:20 }} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:440, maxHeight:'92vh', overflowY:'auto' }}>
-        <div style={{ padding:'20px 24px', borderBottom:`1px solid ${T.line}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <div>
-            <h3 style={{ fontSize:17, fontWeight:800, margin:0 }}>{meeting.title}</h3>
-            <p style={{ fontSize:12, color:T.faint, margin:'2px 0 0' }}>QR Check-in</p>
+    <Modal open onClose={onClose} title="QR check-in" size="md" footer={<Button variant="ghost" onClick={onClose}>Close</Button>}>
+      {isLoading ? <div className="flex justify-center py-8"><Spinner className="h-6 w-6 text-primary" /></div>
+        : (
+          <div className="space-y-4 text-center">
+            <p className="text-sm font-bold text-fg">{m.title}</p>
+            {live && m.qrToken ? (
+              <>
+                <img src={qrSrc(m.qrToken)} alt="Check-in QR" className="mx-auto h-60 w-60 rounded-xl border border-border bg-white p-2" />
+                <p className="text-xs text-muted">Kabataan scan this to check in and earn points.{m.qrExpiry ? ` Expires ${new Date(m.qrExpiry).toLocaleString('en-PH')}.` : ''}</p>
+                <Button variant="danger" loading={offM.isPending} onClick={() => offM.mutate()} className="w-full"><Power className="h-4 w-4" /> Deactivate &amp; end</Button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted">Activate the QR to let kabataan check in.</p>
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-sm text-muted">Open for</span>
+                  <Select value={duration} onChange={(e) => setDuration(e.target.value)} className="w-auto">
+                    {[60, 120, 180, 240].map((d) => <option key={d} value={d}>{d} min</option>)}
+                  </Select>
+                </div>
+                <Button loading={genM.isPending} onClick={() => genM.mutate()} className="w-full"><QrCode className="h-4 w-4" /> Activate QR check-in</Button>
+              </>
+            )}
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:24, color:T.slate, cursor:'pointer' }}>×</button>
-        </div>
+        )}
+    </Modal>
+  );
+}
 
-        <div style={{ padding:24, textAlign:'center' }}>
-          {qr.active && qrValue ? (
-            <>
-              <div style={{ display:'inline-block', padding:20, background:'#fff', borderRadius:16, border:`3px solid ${T.indigo}`, marginBottom:16 }}>
-                <QRCodeCanvas value={qrValue} size={240} level="M" includeMargin={false} />
-              </div>
-              <p style={{ fontSize:14, fontWeight:700, color:T.emerald, margin:'0 0 4px' }}>✓ QR is LIVE — ready to scan</p>
-              <p style={{ fontSize:12, color:T.slate, margin:'0 0 20px' }}>Kabataan: open the Scan tab and point your camera here.</p>
-              <button onClick={deactivate} disabled={loading} style={{ padding:'10px 20px', background:T.roseSoft, color:T.rose, border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer' }}>Stop / Deactivate QR</button>
-            </>
-          ) : (
-            <>
-              <div style={{ width:240, height:240, margin:'0 auto 20px', borderRadius:16, border:`2px dashed ${T.line}`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:T.faint, background:T.bg }}>
-                <span style={{ fontSize:48 }}>📷</span>
-                <span style={{ fontSize:13, marginTop:8 }}>QR not active yet</span>
-              </div>
-              <div style={{ marginBottom:16, textAlign:'left' }}>
-                <label style={lbl}>QR active for (minutes)</label>
-                <input type="number" style={field} value={duration} onChange={e=>setDuration(e.target.value)} />
-              </div>
-              <button onClick={activate} disabled={loading} style={{ padding:'12px 24px', background:T.indigo, color:'#fff', border:'none', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer', width:'100%' }}>
-                {loading?'Activating…':'🚀 Activate QR Check-in'}
-              </button>
-            </>
-          )}
+function ManageModal({ id, initialTab, onClose }) {
+  const qc = useQueryClient();
+  const [tab, setTab] = useState(initialTab || 'checkins');
+  const { data, isLoading } = useQuery({ queryKey: ['meeting', id], queryFn: async () => (await api.get(`/meetings/${id}`)).data.meeting });
+  const m = data || {};
+  const checkedIn = m.checkedIn || [];
+  const comments = m.comments || [];
+  const volunteers = m.volunteers || [];
 
-          {/* Live check-ins */}
-          <div style={{ marginTop:24, textAlign:'left', borderTop:`1px solid ${T.line}`, paddingTop:16 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-              <span style={{ fontSize:13, fontWeight:700 }}>Checked in ({checkins.length})</span>
-              <span style={{ fontSize:10, color:T.faint }}>Auto-refreshing…</span>
-            </div>
-            {checkins.length===0
-              ? <p style={{ fontSize:12, color:T.faint, textAlign:'center', padding:'16px 0' }}>No check-ins yet</p>
-              : <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:180, overflowY:'auto' }}>
-                  {checkins.map((c,i)=>(
-                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', background:T.bg, borderRadius:8 }}>
-                      <div style={{ width:28, height:28, borderRadius:'50%', background:T.indigo, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700 }}>
-                        {(c.user?.firstName||c.firstName||'?')[0]}{(c.user?.lastName||c.lastName||'')[0]}
+  const delC = useMutation({
+    mutationFn: (cid) => api.delete(`/meetings/${id}/comments/${cid}`),
+    onSuccess: () => { toast.success('Comment removed.'); qc.invalidateQueries({ queryKey: ['meeting', id] }); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
+  });
+
+  const tabs = [
+    { k: 'checkins', label: `Attendance (${checkedIn.length})` },
+    ...(m.needsVolunteers ? [{ k: 'volunteers', label: `Volunteers (${volunteers.length})` }] : []),
+    { k: 'comments', label: `Saloobin (${comments.length})` },
+  ];
+
+  return (
+    <Modal open onClose={onClose} title={m.title || 'Event'} size="md" footer={<Button variant="ghost" onClick={onClose}>Close</Button>}>
+      <div className="mb-4 inline-flex flex-wrap rounded-xl border border-border bg-surface p-1">
+        {tabs.map((t) => (
+          <button key={t.k} onClick={() => setTab(t.k)}
+            className={cn('rounded-lg px-3 py-1.5 text-sm font-semibold transition', tab === t.k ? 'bg-primary text-primary-fg' : 'text-muted hover:text-fg')}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? <div className="flex justify-center py-8"><Spinner className="h-6 w-6 text-primary" /></div>
+        : tab === 'checkins' ? (
+          checkedIn.length === 0 ? <EmptyState icon={Users} title="No check-ins yet" description="Attendees who scan the QR appear here." />
+            : (
+              <div className="max-h-[55vh] space-y-2 overflow-y-auto">
+                {checkedIn.map((c, i) => (
+                  <div key={c._id || i} className="flex items-center gap-3 rounded-xl bg-surface2/60 px-3 py-2.5">
+                    <Avatar name={`${c.user?.firstName || ''} ${c.user?.lastName || ''}`} src={c.user?.photo} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-fg">{c.user?.firstName} {c.user?.lastName}</p>
+                      <p className="text-xs text-subtle">{c.user?.barangay || ''}{c.checkedInAt ? ` · ${new Date(c.checkedInAt).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}` : ''}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+        ) : tab === 'volunteers' ? (
+          <>
+            {m.volunteerRole && <p className="mb-3 text-sm text-muted">Task: <span className="font-medium text-fg">{m.volunteerRole}</span>{m.volunteerSlots ? ` · ${volunteers.length}/${m.volunteerSlots} slots` : ''}</p>}
+            {volunteers.length === 0 ? <EmptyState icon={HandHeart} title="No volunteers yet" description="Kabataan who sign up to help will appear here." />
+              : (
+                <div className="max-h-[55vh] space-y-2 overflow-y-auto">
+                  {volunteers.map((v, i) => (
+                    <div key={v._id || i} className="flex items-center gap-3 rounded-xl bg-surface2/60 px-3 py-2.5">
+                      <Avatar name={`${v.user?.firstName || ''} ${v.user?.lastName || ''}`} src={v.user?.photo} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-fg">{v.user?.firstName} {v.user?.lastName}</p>
+                        <p className="truncate text-xs text-subtle">{[v.user?.purok, v.user?.contactNumber].filter(Boolean).join(' · ') || '—'}</p>
+                        {v.note && <p className="mt-0.5 text-xs italic text-muted">“{v.note}”</p>}
                       </div>
-                      <span style={{ fontSize:12.5, fontWeight:600 }}>{c.user?.firstName||c.firstName} {c.user?.lastName||c.lastName}</span>
-                      <span style={{ fontSize:11, color:T.emerald, marginLeft:'auto', fontWeight:700 }}>✓</span>
                     </div>
                   ))}
-                </div>}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function MeetingModal({ onClose, onSaved }) {
-  const [f,setF]=useState({ title:'', description:'', date:'', time:'', location:'', pointsValue:'10' })
-  const [saving,setSaving]=useState(false)
-  const save=async()=>{
-    setSaving(true)
-    try{
-      const datetime=new Date(`${f.date}T${f.time||'00:00'}`).toISOString()
-      await axios.post(`${API}/meetings`,{ title:f.title, description:f.description, date:datetime, venue:f.location, pointsReward:Number(f.pointsValue)||0 })
-      onSaved()
-    }catch(e){ alert(e.response?.data?.message||'Error') } finally{ setSaving(false) }
-  }
-  return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(17,24,39,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100, padding:20 }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:480, maxHeight:'90vh', overflowY:'auto' }}>
-        <div style={{ padding:'18px 22px', borderBottom:`1px solid ${T.line}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <h3 style={{ fontSize:16, fontWeight:700, margin:0 }}>New Meeting / Event</h3>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:T.slate, cursor:'pointer' }}>×</button>
-        </div>
-        <div style={{ padding:22, display:'flex', flexDirection:'column', gap:14 }}>
-          <div><label style={lbl}>Title</label><input style={field} value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="e.g. General Assembly" /></div>
-          <div><label style={lbl}>Description</label><textarea style={{...field,minHeight:60,resize:'vertical'}} value={f.description} onChange={e=>setF({...f,description:e.target.value})} /></div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            <div><label style={lbl}>Date</label><input type="date" style={field} value={f.date} onChange={e=>setF({...f,date:e.target.value})} /></div>
-            <div><label style={lbl}>Time</label><input type="time" style={field} value={f.time} onChange={e=>setF({...f,time:e.target.value})} /></div>
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:12 }}>
-            <div><label style={lbl}>Location</label><input style={field} value={f.location} onChange={e=>setF({...f,location:e.target.value})} placeholder="Barangay Hall" /></div>
-            <div><label style={lbl}>Points ⭐</label><input type="number" style={field} value={f.pointsValue} onChange={e=>setF({...f,pointsValue:e.target.value})} /></div>
-          </div>
-          <p style={{ fontSize:11, color:T.slate, margin:0, background:T.indigoSoft, padding:'9px 12px', borderRadius:8 }}>
-            📷 A QR code is auto-created. Activate it at the event so kabataan can scan and earn the points.
-          </p>
-          <button onClick={save} disabled={saving||!f.title||!f.date} style={{ padding:'11px', background:T.indigo, color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', opacity:saving||!f.title||!f.date?0.6:1 }}>{saving?'Creating…':'Create Meeting'}</button>
-        </div>
-      </div>
-    </div>
-  )
+                </div>
+              )}
+          </>
+        ) : (
+          comments.length === 0 ? <EmptyState icon={MessageSquare} title="No saloobin yet" description="Reflections from kabataan after the event appear here." />
+            : (
+              <div className="max-h-[55vh] space-y-2 overflow-y-auto">
+                {comments.map((c) => (
+                  <div key={c._id} className="rounded-xl bg-surface2/60 px-3 py-2.5">
+                    <div className="flex items-start gap-3">
+                      <Avatar name={`${c.user?.firstName || ''} ${c.user?.lastName || ''}`} src={c.user?.photo} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-fg">{c.user?.firstName} {c.user?.lastName} {c.user?.role && c.user.role !== 'kabataan' && <span className="text-xs font-normal text-primary">· SK</span>}</p>
+                        <p className="text-sm text-muted">{c.text}</p>
+                        <p className="mt-0.5 text-xs text-subtle">{c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : ''}</p>
+                      </div>
+                      <button onClick={() => delC.mutate(c._id)} className="text-danger hover:opacity-70" title="Remove"><X className="h-4 w-4" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+        )}
+    </Modal>
+  );
 }

@@ -1,241 +1,351 @@
-// pages/Landing.jsx — public landing page for e-SK Manage
-// Full marketing page: hero, features, how-it-works, transparency, footer
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
-import skLogo from '../assets/sk-logo.png'
+// src/pages/Landing.jsx — e-SK Manage public landing page
+// cspell:words Sangguniang Kabataan Tawiran Marinduque Saloobin ABYIP CBYDP Bukas
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import {
+  Menu, X, ArrowRight, Wallet, QrCode, FileText, Megaphone,
+  ShieldCheck, FolderKanban, MapPin, Mail, Phone, Sun, Users, Layers,
+} from 'lucide-react';
+import api from '../lib/api';
+import skLogo from '../assets/sk-logo.svg';
+import heroImg from '../assets/landing-hero.jpg';
 
-const C = {
-  night:'#1E1B4B',   // deep institutional indigo
-  ink:'#0F1F5C',
-  indigo:'#4F46E5',
-  violet:'#7C3AED',
-  gold:'#EAB308',
-  goldDeep:'#CA8A04',
-  paper:'#FFFFFF',
-  mist:'#F4F6FB',
-  line:'#E7E9F2',
-  slate:'#5A6478',
-  faint:'#93A0B4',
+const YEAR = new Date().getFullYear();
+const peso = (n) => `₱${Number(n || 0).toLocaleString('en-PH')}`;
+
+const INK = '#0B1F3A';   // harbor navy
+const GOLD = '#FBBF24';  // sunrise gold
+
+const NAV = [
+  { href: '#home', label: 'Home' },
+  { href: '#features', label: 'Features' },
+  { href: '#about', label: 'About' },
+  { href: '#contact', label: 'Contact' },
+];
+
+const FEATURES = [
+  { icon: FolderKanban, title: 'Programs & Projects', desc: 'Plan and track Programs, Projects, and Activities from proposal to accomplishment.' },
+  { icon: Wallet, title: 'Transparent budgeting', desc: 'Record funds and expenses — kabataan see exactly where the budget is used.' },
+  { icon: QrCode, title: 'QR check-in & points', desc: 'Members scan to attend events and earn participation points and rewards.' },
+  { icon: FileText, title: 'Official reports', desc: 'Generate ABYIP, CBYDP, and accomplishment reports ready for submission.' },
+  { icon: Megaphone, title: 'Announcements & saloobin', desc: 'Share updates, schedule meetings, and gather the youth’s reflections after events.' },
+  { icon: ShieldCheck, title: 'Verified membership', desc: 'Residency-verified kabataan with demographics for accurate, fair planning.' },
+];
+
+const DEFAULT_CONTACT = {
+  address: 'SK Office, Barangay Tawiran, Sta. Cruz, Marinduque',
+  email: 'sktawiran@gmail.com',
+  phone: 'Contact your SK Chairperson',
+};
+
+function Logo({ className = '' }) {
+  return (
+    <div className={`flex items-center gap-2.5 ${className}`}>
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+        <img src={skLogo} alt="SK Barangay Tawiran" className="h-7 w-7 object-contain" />
+      </div>
+      <div className="leading-tight">
+        <p className="text-base font-extrabold text-slate-900">e-SK <span style={{ color: '#1D4ED8' }}>Manage</span></p>
+        <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-400">Plan · Manage · Empower</p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Public PPA ---------- */
+function statusTone(s) {
+  const t = (s || '').toLowerCase();
+  if (t.includes('complete') || t.includes('accomplish') || t.includes('done')) return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
+  if (t.includes('ongoing') || t.includes('active') || t.includes('progress')) return 'bg-blue-50 text-blue-700 ring-blue-200';
+  if (t.includes('plan') || t.includes('propos')) return 'bg-amber-50 text-amber-700 ring-amber-200';
+  return 'bg-slate-100 text-slate-600 ring-slate-200';
+}
+
+function PublicPPA() {
+  const q = useQuery({
+    queryKey: ['public-programs'],
+    retry: false,
+    queryFn: async () => {
+      const { data } = await api.get('/programs/public');
+      return Array.isArray(data) ? data : data.programs || data.data || [];
+    },
+  });
+  const programs = Array.isArray(q.data) ? q.data : [];
+
+  return (
+    <section id="activities" className="bg-[#F7F9FC] py-24">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="max-w-2xl">
+          <h2 className="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">What the SK is working on</h2>
+          <p className="mt-3 text-lg text-slate-600">A public look at the programs, projects, and activities serving the youth of Barangay Tawiran.</p>
+        </div>
+
+        {q.isLoading ? (
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => <div key={i} className="h-44 animate-pulse rounded-2xl bg-white" />)}
+          </div>
+        ) : programs.length === 0 ? (
+          <div className="mt-10 flex items-center gap-4 rounded-2xl border border-dashed border-slate-300 bg-white p-8">
+            <Layers className="h-8 w-8 shrink-0 text-slate-400" />
+            <div>
+              <p className="font-bold text-slate-800">Activities will appear here soon</p>
+              <p className="text-sm text-slate-500">Once the SK publishes its programs, the community can follow them right here.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {programs.slice(0, 6).map((p) => {
+              const projects = p.projects || [];
+              const activities = projects.reduce((n, pr) => n + ((pr.activities || []).length), 0);
+              const used = p.totalUsed ?? p.spent ?? p.utilized ?? 0;
+              return (
+                <article key={p._id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 transition hover:border-slate-300 hover:shadow-md">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-xl text-white" style={{ background: '#1D4ED8' }}><FolderKanban className="h-5 w-5" /></span>
+                    {p.status && <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${statusTone(p.status)}`}>{p.status}</span>}
+                  </div>
+                  <h3 className="mt-4 font-bold text-slate-900">{p.title || p.name}</h3>
+                  {(p.description || p.objective) && <p className="mt-1.5 line-clamp-3 text-sm text-slate-600">{p.description || p.objective}</p>}
+                  <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-xs font-semibold text-slate-500">
+                    <span>{projects.length} projects</span>
+                    <span>{activities} activities</span>
+                    {used > 0 && <span className="text-emerald-600">{peso(used)} used</span>}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
 }
 
 export default function Landing() {
-  const nav = useNavigate()
-  const { user } = useAuth()
-  const [scrolled, setScrolled] = useState(false)
+  const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20)
-    window.addEventListener('scroll', onScroll)
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-
-  // where a logged-in user should "enter"
-  const enter = () => {
-    if (!user) return nav('/login')
-    if (user.role === 'admin') return nav('/admin/dashboard')
-    if (['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad'].includes(user.role)) return nav('/sk/dashboard')
-    return nav('/kabataan')
-  }
+  const contactQ = useQuery({
+    queryKey: ['public-settings'],
+    retry: false,
+    queryFn: async () => {
+      const { data } = await api.get('/settings/public');
+      return data.settings || data || {};
+    },
+  });
+  const contact = { ...DEFAULT_CONTACT, ...(contactQ.data || {}) };
 
   return (
-    <div style={{ fontFamily:"'Plus Jakarta Sans','Inter',system-ui,sans-serif", color:C.ink, background:C.paper, overflowX:'hidden' }}>
-
-      {/* ══ Nav ══ */}
-      <nav style={{
-        position:'fixed', top:0, left:0, right:0, zIndex:50,
-        padding:'0 clamp(16px,5vw,48px)', height:68,
-        display:'flex', alignItems:'center', justifyContent:'space-between',
-        background: scrolled ? 'rgba(255,255,255,0.92)' : 'transparent',
-        backdropFilter: scrolled ? 'blur(12px)' : 'none',
-        borderBottom: scrolled ? `1px solid ${C.line}` : '1px solid transparent',
-        transition:'all 0.3s',
-      }}>
-        <div style={{ display:'flex', alignItems:'center', gap:11 }}>
-          <div style={{ width:38, height:38, borderRadius:10, background:'#fff', border:`1px solid ${C.line}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <img src={skLogo} alt="SK" style={{ width:26, objectFit:'contain' }} />
+    <div className="min-h-screen scroll-smooth bg-white text-slate-900">
+      {/* ---------- Navbar ---------- */}
+      <header className="sticky top-0 z-40 px-4 pt-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between rounded-2xl border border-slate-200/70 bg-white/85 px-4 py-2.5 shadow-sm backdrop-blur-md sm:px-6">
+          <a href="#home"><Logo /></a>
+          <nav className="hidden items-center gap-1 md:flex">
+            {NAV.map((n) => (
+              <a key={n.href} href={n.href} className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900">{n.label}</a>
+            ))}
+          </nav>
+          <div className="hidden items-center gap-2 md:flex">
+            <Link to="/login" className="rounded-xl px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100">Login</Link>
+            <Link to="/register" className="rounded-xl px-4 py-2 text-sm font-bold text-white shadow-sm transition" style={{ background: '#1D4ED8' }}>Sign Up</Link>
           </div>
-          <div>
-            <div style={{ fontSize:15, fontWeight:800, color: scrolled ? C.ink : '#fff', lineHeight:1, transition:'color 0.3s' }}>e-SK Manage</div>
-            <div style={{ fontSize:10.5, fontWeight:600, color: scrolled ? C.faint : 'rgba(255,255,255,0.7)', transition:'color 0.3s' }}>Barangay Tawiran</div>
-          </div>
+          <button onClick={() => setOpen((o) => !o)} className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 hover:bg-slate-100 md:hidden">
+            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <button onClick={()=>nav('/login')} style={{
-            padding:'9px 18px', borderRadius:10, fontSize:13.5, fontWeight:700, cursor:'pointer',
-            background:'transparent', border:'none',
-            color: scrolled ? C.ink : '#fff', transition:'color 0.3s',
-          }}>Sign in</button>
-          <button onClick={()=>nav('/register')} style={{
-            padding:'9px 18px', borderRadius:10, fontSize:13.5, fontWeight:700, cursor:'pointer',
-            background:C.gold, border:'none', color:C.night,
-            boxShadow:'0 4px 14px rgba(234,179,8,0.35)',
-          }}>Join as Kabataan</button>
-        </div>
-      </nav>
-
-      {/* ══ Hero ══ */}
-      <header style={{
-        position:'relative',
-        background:`radial-gradient(120% 120% at 80% 0%, #2D2A6E 0%, ${C.night} 45%, #17153B 100%)`,
-        color:'#fff', padding:'132px clamp(16px,5vw,48px) 100px',
-        overflow:'hidden',
-      }}>
-        {/* decorative gold arc */}
-        <div style={{ position:'absolute', top:-140, right:-120, width:420, height:420, borderRadius:'50%', border:`1px solid rgba(234,179,8,0.18)` }} />
-        <div style={{ position:'absolute', top:-90, right:-70, width:320, height:320, borderRadius:'50%', border:`1px solid rgba(234,179,8,0.12)` }} />
-        <div style={{ position:'absolute', bottom:-100, left:-80, width:300, height:300, borderRadius:'50%', background:'radial-gradient(circle, rgba(124,58,237,0.25), transparent 70%)' }} />
-
-        <div style={{ position:'relative', maxWidth:1000, margin:'0 auto', textAlign:'center' }}>
-          <div style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'7px 16px', borderRadius:999, background:'rgba(234,179,8,0.12)', border:'1px solid rgba(234,179,8,0.3)', marginBottom:28 }}>
-            <span style={{ width:7, height:7, borderRadius:'50%', background:C.gold }} />
-            <span style={{ fontSize:12.5, fontWeight:700, color:'#FDE68A' }}>Sangguniang Kabataan · Santa Cruz, Marinduque</span>
-          </div>
-
-          <h1 style={{ fontSize:'clamp(34px,6vw,62px)', fontWeight:800, lineHeight:1.06, letterSpacing:'-1.5px', margin:'0 0 22px' }}>
-            Youth governance,<br/>
-            <span style={{ color:C.gold }}>open for everyone to see.</span>
-          </h1>
-
-          <p style={{ fontSize:'clamp(15px,2.2vw,19px)', lineHeight:1.6, color:'rgba(255,255,255,0.78)', maxWidth:620, margin:'0 auto 38px' }}>
-            e-SK Manage brings the projects, budgets, and programs of your Sangguniang Kabataan into one clear place — so every peso is tracked and every young person can take part.
-          </p>
-
-          <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
-            <button onClick={()=>nav('/register')} style={{
-              padding:'15px 30px', borderRadius:13, fontSize:15.5, fontWeight:700, cursor:'pointer',
-              background:C.gold, color:C.night, border:'none',
-              boxShadow:'0 10px 30px rgba(234,179,8,0.4)',
-            }}>Join as Kabataan</button>
-            <button onClick={enter} style={{
-              padding:'15px 30px', borderRadius:13, fontSize:15.5, fontWeight:700, cursor:'pointer',
-              background:'rgba(255,255,255,0.1)', color:'#fff', border:'1px solid rgba(255,255,255,0.25)',
-            }}>{user ? 'Enter your dashboard' : 'Sign in'}</button>
-          </div>
-        </div>
-
-        {/* stat band */}
-        <div style={{ position:'relative', maxWidth:820, margin:'70px auto 0', display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'clamp(12px,3vw,40px)', borderTop:'1px solid rgba(255,255,255,0.12)', paddingTop:34 }}>
-          {[
-            { big:'100%', small:'of funds recorded and traceable' },
-            { big:'1-tap', small:'QR check-in earns youth points' },
-            { big:'Open', small:'budget anyone can review' },
-          ].map((s,i)=>(
-            <div key={i} style={{ textAlign:'center' }}>
-              <div style={{ fontSize:'clamp(24px,4vw,34px)', fontWeight:800, color:C.gold, letterSpacing:'-1px' }}>{s.big}</div>
-              <div style={{ fontSize:12.5, color:'rgba(255,255,255,0.65)', marginTop:5, lineHeight:1.4 }}>{s.small}</div>
+        {open && (
+          <div className="mx-auto mt-2 max-w-6xl rounded-2xl border border-slate-200 bg-white p-3 shadow-lg md:hidden">
+            <nav className="flex flex-col">
+              {NAV.map((n) => <a key={n.href} href={n.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100">{n.label}</a>)}
+            </nav>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Link to="/login" onClick={() => setOpen(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-center text-sm font-bold text-slate-700">Login</Link>
+              <Link to="/register" onClick={() => setOpen(false)} className="rounded-xl px-4 py-2 text-center text-sm font-bold text-white" style={{ background: '#1D4ED8' }}>Sign Up</Link>
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </header>
 
-      {/* ══ Features ══ */}
-      <section style={{ padding:'clamp(60px,9vw,100px) clamp(16px,5vw,48px)', background:C.paper }}>
-        <div style={{ maxWidth:1080, margin:'0 auto' }}>
-          <div style={{ textAlign:'center', marginBottom:56 }}>
-            <h2 style={{ fontSize:'clamp(26px,4vw,40px)', fontWeight:800, letterSpacing:'-0.8px', margin:'0 0 14px' }}>Everything the council does, in one place</h2>
-            <p style={{ fontSize:16, color:C.slate, maxWidth:560, margin:'0 auto', lineHeight:1.6 }}>Built for the officials who run it and the youth it serves.</p>
+      {/* ---------- Hero ---------- */}
+      <section id="home" className="px-4 pt-6">
+        <div className="relative mx-auto max-w-7xl overflow-hidden rounded-[28px] shadow-2xl" style={{ background: INK }}>
+          <img src={heroImg} alt="Kabataan ng Barangay Tawiran" className="absolute inset-0 h-full w-full object-cover object-[70%_center]" />
+          {/* mobile: flat dark · desktop: navy → clear gradient */}
+          <div className="absolute inset-0 sm:hidden" style={{ background: 'rgba(11,31,58,0.72)' }} />
+          <div className="absolute inset-0 hidden sm:block"
+            style={{ background: `linear-gradient(100deg, ${INK} 0%, ${INK} 34%, rgba(11,31,58,0.72) 52%, rgba(11,31,58,0.15) 72%, rgba(11,31,58,0) 88%)` }} />
+          <div className="relative max-w-xl px-6 py-16 sm:px-12 sm:py-24 lg:py-28">
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-1.5 text-sm font-semibold text-white ring-1 ring-white/20 backdrop-blur">
+              <Sun className="h-4 w-4" style={{ color: GOLD }} /> Sangguniang Kabataan · Barangay Tawiran
+            </span>
+            <h1 className="mt-5 text-5xl font-black leading-[1.02] tracking-tight text-white sm:text-6xl lg:text-7xl">
+              e-SK <span style={{ color: GOLD }}>Manage</span>
+            </h1>
+            <p className="mt-5 max-w-md text-lg leading-relaxed text-white/85">
+              A web-based project and financial management system for the Sangguniang Kabataan of
+              Barangay Tawiran, Sta. Cruz, Marinduque.
+            </p>
+            <p className="mt-3 max-w-md text-base font-medium text-white/70">
+              Better management. Greater participation. A stronger, more empowered youth.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-4">
+              <Link to="/register"
+                className="inline-flex items-center gap-2 rounded-xl px-7 py-3.5 text-sm font-bold text-[#0B1F3A] shadow-lg transition hover:brightness-95"
+                style={{ background: GOLD }}>
+                Get Started <ArrowRight className="h-4 w-4" />
+              </Link>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm font-medium text-white/80">
+                <span>Transparent</span><span className="text-white/30">·</span>
+                <span>Paperless</span><span className="text-white/30">·</span>
+                <span>Youth-empowered</span>
+              </div>
+            </div>
           </div>
+        </div>
+      </section>
 
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
+      {/* ---------- Overview ---------- */}
+      <section className="mx-auto max-w-6xl px-6 py-24">
+        <div className="grid gap-12 lg:grid-cols-[1.1fr_1fr] lg:items-start">
+          <div>
+            <h2 className="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">What is e-SK Manage?</h2>
+            <p className="mt-5 text-lg leading-relaxed text-slate-600">
+              e-SK Manage is the digital home of the Sangguniang Kabataan of Barangay Tawiran. It brings the
+              council’s planning, budget, and youth activities into one transparent system — so programs stay
+              organized, spending is accountable, and every kabataan can take part and stay informed.
+            </p>
+          </div>
+          <div className="space-y-4">
             {[
-              { icon:'💰', tint:'#ECFDF5', c:'#059669', title:'Transparent finances', body:'Every fund received and every expense is recorded with a receipt. Nothing is deleted — only voided with a reason, so the money trail is always honest.' },
-              { icon:'📋', tint:'#EEF0FF', c:C.indigo, title:'Programs & projects', body:'Track the council\u2019s programs down to each project and activity, with budgets that roll up automatically and progress photos as proof.' },
-              { icon:'⭐', tint:'#FEF3C7', c:C.goldDeep, title:'Points for taking part', body:'Youth earn points by joining meetings and volunteering. The SK decides the rewards — turning participation into something real.' },
-              { icon:'📷', tint:'#F5F3FF', c:C.violet, title:'QR check-in', body:'At every event, members scan a QR code to check in and instantly earn their points. No sign-up sheets, no manual counting.' },
-              { icon:'📢', tint:'#F0F9FF', c:'#0284C7', title:'Announcements & events', body:'Meetings, opportunities, and news reach every registered youth the moment they\u2019re posted.' },
-              { icon:'🏆', tint:'#FFF7ED', c:'#EA580C', title:'Rewards you can claim', body:'Redeem your points for rewards the council offers — a simple way to recognize the members who show up.' },
-            ].map((f,i)=>(
-              <div key={i} style={{ background:C.paper, border:`1px solid ${C.line}`, borderRadius:18, padding:26 }}>
-                <div style={{ width:52, height:52, borderRadius:14, background:f.tint, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, marginBottom:18 }}>{f.icon}</div>
-                <h3 style={{ fontSize:18, fontWeight:800, margin:'0 0 9px', color:f.c }}>{f.title}</h3>
-                <p style={{ fontSize:14, color:C.slate, lineHeight:1.6, margin:0 }}>{f.body}</p>
+              { icon: FolderKanban, title: 'Project management', desc: 'Programs → Projects → Activities, with status and budget at every level.' },
+              { icon: Wallet, title: 'Financial transparency', desc: 'Track funds and expenses openly so every peso the SK spends is accounted for.' },
+              { icon: Users, title: 'Youth participation', desc: 'Join events, volunteer, earn points, and share your saloobin on finished activities.' },
+            ].map((p) => {
+              const Icon = p.icon;
+              return (
+                <div key={p.title} className="flex gap-4 rounded-2xl border border-slate-200 bg-white p-5">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl" style={{ background: 'rgba(29,78,216,0.1)', color: '#1D4ED8' }}><Icon className="h-5 w-5" /></span>
+                  <div>
+                    <h3 className="font-bold text-slate-900">{p.title}</h3>
+                    <p className="mt-0.5 text-sm text-slate-600">{p.desc}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Features ---------- */}
+      <section id="features" className="bg-[#F7F9FC] py-24">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="max-w-2xl">
+            <h2 className="text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">Everything the SK needs, in one place</h2>
+            <p className="mt-3 text-lg text-slate-600">From planning and budgeting to youth participation and official reporting.</p>
+          </div>
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {FEATURES.map((f) => {
+              const Icon = f.icon;
+              return (
+                <article key={f.title} className="rounded-2xl border border-slate-200 bg-white p-6 transition hover:border-slate-300 hover:shadow-md">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-xl" style={{ background: 'rgba(29,78,216,0.1)', color: '#1D4ED8' }}><Icon className="h-6 w-6" /></span>
+                  <h3 className="mt-4 text-lg font-bold text-slate-900">{f.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{f.desc}</p>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Public PPA ---------- */}
+      <PublicPPA />
+
+      {/* ---------- About / mission (navy band) ---------- */}
+      <section id="about" className="py-24 text-white" style={{ background: INK }}>
+        <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 lg:grid-cols-2">
+          <div>
+            <h2 className="text-3xl font-black tracking-tight sm:text-4xl">Kabataan Para sa Bukas</h2>
+            <p className="mt-5 text-lg leading-relaxed text-white/80">
+              Built for the Sangguniang Kabataan of Barangay Tawiran, e-SK Manage lets young leaders run their
+              programs professionally — and lets every member see the work being done on their behalf.
+            </p>
+            <ul className="mt-7 space-y-3 text-white/85">
+              {[
+                'Officers plan PPAs and generate ABYIP & CBYDP reports automatically.',
+                'Treasurers record funds and expenses with full transparency.',
+                'Kabataan join events, earn points, volunteer, and share their saloobin.',
+              ].map((t) => (
+                <li key={t} className="flex items-start gap-3 text-sm">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: GOLD }} /> {t}
+                </li>
+              ))}
+            </ul>
+            <Link to="/register" className="mt-8 inline-flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold text-[#0B1F3A] transition hover:brightness-95" style={{ background: GOLD }}>
+              Join your SK <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { k: '100%', v: 'Transparent budget' },
+              { k: '3-yr', v: 'CBYDP planning' },
+              { k: '15–30', v: 'Youth coverage' },
+              { k: 'Paperless', v: 'Reports & records' },
+            ].map((s) => (
+              <div key={s.v} className="rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
+                <p className="text-2xl font-black" style={{ color: GOLD }}>{s.k}</p>
+                <p className="mt-1 text-sm text-white/70">{s.v}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ══ How it works ══ */}
-      <section style={{ padding:'clamp(60px,9vw,100px) clamp(16px,5vw,48px)', background:C.mist }}>
-        <div style={{ maxWidth:940, margin:'0 auto' }}>
-          <div style={{ textAlign:'center', marginBottom:56 }}>
-            <h2 style={{ fontSize:'clamp(26px,4vw,40px)', fontWeight:800, letterSpacing:'-0.8px', margin:'0 0 14px' }}>How youth take part</h2>
-            <p style={{ fontSize:16, color:C.slate, maxWidth:520, margin:'0 auto', lineHeight:1.6 }}>Three steps from signing up to being recognized.</p>
+      {/* ---------- Contact ---------- */}
+      <section id="contact" className="mx-auto max-w-5xl px-6 py-24">
+        <div className="grid items-stretch gap-8 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm md:grid-cols-2">
+          <div className="rounded-2xl p-8 text-white" style={{ background: '#1D4ED8' }}>
+            <h2 className="text-2xl font-black">Get in touch</h2>
+            <p className="mt-2 text-sm text-white/80">Reach the SK office of Barangay Tawiran.</p>
+            <div className="mt-7 space-y-5 text-sm">
+              <p className="flex items-start gap-3"><MapPin className="mt-0.5 h-5 w-5 shrink-0 text-white/80" /> {contact.address}</p>
+              {contact.email && <p className="flex items-center gap-3"><Mail className="h-5 w-5 shrink-0 text-white/80" /> {contact.email}</p>}
+              {contact.phone && <p className="flex items-center gap-3"><Phone className="h-5 w-5 shrink-0 text-white/80" /> {contact.phone}</p>}
+            </div>
           </div>
-
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:20 }}>
-            {[
-              { n:1, title:'Register your account', body:'Any youth of Barangay Tawiran can sign up in minutes — no paperwork, just your details.' },
-              { n:2, title:'Join events & scan in', body:'Attend meetings and activities, scan the QR code shown by an SK official, and earn points on the spot.' },
-              { n:3, title:'Redeem your rewards', body:'Watch your points grow on the leaderboard and exchange them for the rewards your council posts.' },
-            ].map((s)=>(
-              <div key={s.n} style={{ position:'relative', background:C.paper, border:`1px solid ${C.line}`, borderRadius:18, padding:'30px 24px 24px' }}>
-                <div style={{ position:'absolute', top:-18, left:24, width:40, height:40, borderRadius:12, background:`linear-gradient(135deg,${C.indigo},${C.violet})`, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:800, boxShadow:'0 6px 16px rgba(79,70,229,0.35)' }}>{s.n}</div>
-                <h3 style={{ fontSize:17, fontWeight:800, margin:'12px 0 9px' }}>{s.title}</h3>
-                <p style={{ fontSize:14, color:C.slate, lineHeight:1.6, margin:0 }}>{s.body}</p>
-              </div>
-            ))}
+          <div className="flex flex-col justify-center p-8">
+            <h3 className="text-xl font-bold text-slate-900">Ready to join?</h3>
+            <p className="mt-2 text-slate-600">
+              Register as a kabataan member to participate in events, track programs, and earn points.
+              SK officer accounts are created by the Chairperson.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link to="/register" className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold text-white transition hover:brightness-95" style={{ background: '#1D4ED8' }}>
+                Create account <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link to="/login" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50">Login</Link>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ══ Transparency band ══ */}
-      <section style={{ padding:'clamp(60px,9vw,100px) clamp(16px,5vw,48px)', background:`linear-gradient(135deg,${C.night},#2D2A6E)`, color:'#fff', position:'relative', overflow:'hidden' }}>
-        <div style={{ position:'absolute', top:'50%', right:-100, transform:'translateY(-50%)', width:360, height:360, borderRadius:'50%', background:'radial-gradient(circle, rgba(234,179,8,0.15), transparent 70%)' }} />
-        <div style={{ position:'relative', maxWidth:820, margin:'0 auto', textAlign:'center' }}>
-          <div style={{ fontSize:44, marginBottom:20 }}>🔍</div>
-          <h2 style={{ fontSize:'clamp(26px,4.5vw,42px)', fontWeight:800, letterSpacing:'-1px', lineHeight:1.15, margin:'0 0 20px' }}>
-            Public money, kept in <span style={{ color:C.gold }}>full view</span>
-          </h2>
-          <p style={{ fontSize:'clamp(15px,2vw,18px)', color:'rgba(255,255,255,0.78)', lineHeight:1.65, maxWidth:600, margin:'0 auto 36px' }}>
-            The budget page is open to every registered youth. See what the council received, where it was spent, and how much is left — down to each program and activity. Accountability isn\u2019t a promise here; it\u2019s the design.
-          </p>
-          <button onClick={()=>nav('/register')} style={{
-            padding:'15px 32px', borderRadius:13, fontSize:15.5, fontWeight:700, cursor:'pointer',
-            background:C.gold, color:C.night, border:'none', boxShadow:'0 10px 30px rgba(234,179,8,0.4)',
-          }}>Get started — it\u2019s free</button>
-        </div>
-      </section>
-
-      {/* ══ Footer ══ */}
-      <footer style={{ background:'#12102E', color:'rgba(255,255,255,0.7)', padding:'clamp(40px,6vw,64px) clamp(16px,5vw,48px) 32px' }}>
-        <div style={{ maxWidth:1080, margin:'0 auto' }}>
-          <div style={{ display:'flex', flexWrap:'wrap', gap:30, justifyContent:'space-between', alignItems:'flex-start', paddingBottom:36, borderBottom:'1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ maxWidth:320 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:11, marginBottom:14 }}>
-                <div style={{ width:38, height:38, borderRadius:10, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  <img src={skLogo} alt="SK" style={{ width:26, objectFit:'contain' }} />
-                </div>
-                <div>
-                  <div style={{ fontSize:15, fontWeight:800, color:'#fff' }}>e-SK Manage</div>
-                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)' }}>Barangay Tawiran</div>
-                </div>
-              </div>
-              <p style={{ fontSize:13, lineHeight:1.6, margin:0 }}>A project and financial management system for the Sangguniang Kabataan of Sta. Cruz, Marinduque.</p>
-            </div>
-
-            <div style={{ display:'flex', gap:'clamp(30px,8vw,72px)', flexWrap:'wrap' }}>
-              <div>
-                <div style={{ fontSize:12.5, fontWeight:700, color:'#fff', marginBottom:14 }}>Get started</div>
-                {[['Join as Kabataan','/register'],['Sign in','/login']].map(([label,to])=>(
-                  <button key={label} onClick={()=>nav(to)} style={{ display:'block', background:'none', border:'none', color:'rgba(255,255,255,0.7)', fontSize:13.5, cursor:'pointer', padding:'5px 0', textAlign:'left', fontFamily:'inherit' }}>{label}</button>
-                ))}
-              </div>
-              <div>
-                <div style={{ fontSize:12.5, fontWeight:700, color:'#fff', marginBottom:14 }}>For officials</div>
-                <button onClick={()=>nav('/login')} style={{ display:'block', background:'none', border:'none', color:'rgba(255,255,255,0.7)', fontSize:13.5, cursor:'pointer', padding:'5px 0', textAlign:'left', fontFamily:'inherit' }}>Council sign in</button>
-                <div style={{ fontSize:12.5, color:'rgba(255,255,255,0.4)', padding:'5px 0' }}>Accounts issued by admin</div>
-              </div>
+      {/* ---------- Footer ---------- */}
+      <footer className="text-white" style={{ background: INK }}>
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-5 px-6 py-10 sm:flex-row">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white"><img src={skLogo} alt="" className="h-7 w-7 object-contain" /></div>
+            <div className="leading-tight">
+              <p className="font-extrabold">e-SK <span style={{ color: GOLD }}>Manage</span></p>
+              <p className="text-[11px] text-white/50">Barangay Tawiran · Sta. Cruz, Marinduque</p>
             </div>
           </div>
-
-          <div style={{ display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:10, paddingTop:24, fontSize:12.5, color:'rgba(255,255,255,0.5)' }}>
-            <span>© {new Date().getFullYear()} Sangguniang Kabataan · Barangay Tawiran</span>
-            <span>Made for the youth of Santa Cruz, Marinduque 🇵🇭</span>
-          </div>
+          <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-semibold text-white/70">
+            {NAV.map((n) => <a key={n.href} href={n.href} className="hover:text-white">{n.label}</a>)}
+          </nav>
+          <p className="text-xs text-white/40">© {YEAR} e-SK Manage</p>
         </div>
       </footer>
     </div>
-  )
+  );
 }
