@@ -2,11 +2,11 @@
 // Manages all SK financial records
 // Fund receipts + Expenses with full audit trail
 
-const Fund     = require('../models/Fund')
-const Expense  = require('../models/Expense')
+const Fund = require('../models/Fund')
+const Expense = require('../models/Expense')
 const Activity = require('../models/Activity')
-const Project  = require('../models/Project')
-const Program  = require('../models/Program')
+const Project = require('../models/Project')
+const Program = require('../models/Program')
 const AuditLog = require('../models/AuditLog')
 
 // ── BALANCE HELPER ────────────────────────────────────────────────────────────
@@ -39,8 +39,8 @@ const getFunds = async (req, res) => {
   try {
     const funds = await Fund.find()
       .populate('recordedBy', 'firstName lastName role')
-      .populate('voidedBy',   'firstName lastName role')
-      .populate('program',    'title')
+      .populate('voidedBy', 'firstName lastName role')
+      .populate('program', 'title')
       .sort({ dateReceived: -1 })
     const balance = await getBalance()
     res.json({ funds, ...balance })
@@ -73,8 +73,10 @@ const recordFund = async (req, res) => {
     await fund.populate('recordedBy', 'firstName lastName role')
 
     await AuditLog.create({
-      user:    req.user._id,
-      action:  'RECORD_FUND',
+      user: req.user._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      action: 'RECORD_FUND',
       details: `${req.user.firstName} ${req.user.lastName} recorded fund receipt: ₱${amount} from ${source} on ${dateReceived}`,
     })
 
@@ -96,12 +98,12 @@ const editFund = async (req, res) => {
 
     // Save snapshot of old values before edit
     const oldValues = {
-      source:          fund.source,
-      amount:          fund.amount,
+      source: fund.source,
+      amount: fund.amount,
       referenceNumber: fund.referenceNumber,
-      dateReceived:    fund.dateReceived,
-      purpose:         fund.purpose,
-      notes:           fund.notes,
+      dateReceived: fund.dateReceived,
+      purpose: fund.purpose,
+      notes: fund.notes,
     }
 
     // Build change description
@@ -116,17 +118,19 @@ const editFund = async (req, res) => {
 
     // Log the edit
     fund.editHistory.push({
-      editedBy:  req.user._id,
-      editedAt:  new Date(),
+      editedBy: req.user._id,
+      editedAt: new Date(),
       oldValues,
-      changes:   changes.join(', ') || 'Minor update',
+      changes: changes.join(', ') || 'Minor update',
     })
 
     await fund.save()
 
     await AuditLog.create({
-      user:    req.user._id,
-      action:  'EDIT_FUND',
+      user: req.user._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      action: 'EDIT_FUND',
       details: `${req.user.firstName} ${req.user.lastName} edited fund record ID:${fund._id}. Changes: ${changes.join(', ')}`,
     })
 
@@ -147,15 +151,17 @@ const voidFund = async (req, res) => {
     if (!fund) return res.status(404).json({ message: 'Fund record not found.' })
     if (fund.isVoided) return res.status(400).json({ message: 'Already voided.' })
 
-    fund.isVoided   = true
+    fund.isVoided = true
     fund.voidReason = reason
-    fund.voidedBy   = req.user._id
-    fund.voidedAt   = new Date()
+    fund.voidedBy = req.user._id
+    fund.voidedAt = new Date()
     await fund.save()
 
     await AuditLog.create({
-      user:    req.user._id,
-      action:  'VOID_FUND',
+      user: req.user._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      action: 'VOID_FUND',
       details: `${req.user.firstName} ${req.user.lastName} voided fund record ID:${fund._id}. Reason: ${reason}`,
     })
 
@@ -172,19 +178,19 @@ const getExpenses = async (req, res) => {
   try {
     const { status, activity, project, program } = req.query
     const filter = {}
-    if (status)   filter.status   = status
+    if (status) filter.status = status
     if (activity) filter.activity = activity
-    if (project)  filter.project  = project
-    if (program)  filter.program  = program
+    if (project) filter.project = project
+    if (program) filter.program = program
 
     const expenses = await Expense.find(filter)
-      .populate('recordedBy',  'firstName lastName role')
-      .populate('approvedBy',  'firstName lastName role')
-      .populate('rejectedBy',  'firstName lastName role')
-      .populate('voidedBy',    'firstName lastName role')
-      .populate('activity',    'title')
-      .populate('project',     'title')
-      .populate('program',     'title')
+      .populate('recordedBy', 'firstName lastName role')
+      .populate('approvedBy', 'firstName lastName role')
+      .populate('rejectedBy', 'firstName lastName role')
+      .populate('voidedBy', 'firstName lastName role')
+      .populate('activity', 'title')
+      .populate('project', 'title')
+      .populate('program', 'title')
       .sort({ dateSpent: -1 })
 
     const balance = await getBalance()
@@ -201,47 +207,58 @@ const recordExpense = async (req, res) => {
     const {
       title, description, category, amount,
       receiptNumber, receiptPhoto, receiptDate, vendor,
-      dateSpent, activity, project, program, notes,
+      dateSpent, activity, project, program, notes, items, source,
     } = req.body
 
-    if (!title || !amount || !dateSpent) {
+    const itemList = Array.isArray(items)
+      ? items.filter((it) => it && Number(it.amount) > 0)
+        .map((it) => ({ description: it.description || '', quantity: Number(it.quantity) || 1, amount: Number(it.amount), category: it.category || category || 'other' }))
+      : []
+
+    // Total from items when provided, else the given amount
+    const finalAmount = itemList.length ? itemList.reduce((s, it) => s + it.amount, 0) : Number(amount)
+
+    if (!title || !finalAmount || !dateSpent) {
       return res.status(400).json({ message: 'Title, amount, and date spent are required.' })
     }
 
-    // Check if expense would exceed available balance
     const balance = await getBalance()
-    if (amount > balance.balance) {
+    if (finalAmount > balance.balance) {
       return res.status(400).json({
-        message: `Insufficient funds. Available balance: ₱${balance.balance.toLocaleString()}. Expense amount: ₱${amount.toLocaleString()}.`
+        message: `Insufficient funds. Available balance: ₱${balance.balance.toLocaleString()}. Expense amount: ₱${finalAmount.toLocaleString()}.`
       })
     }
 
     const expense = await Expense.create({
-      title, description, category, amount,
+      title, description, category, amount: finalAmount,
+      items: itemList,
       receiptNumber: receiptNumber || '',
-      receiptPhoto:  receiptPhoto  || '',
-      receiptDate:   receiptDate   || dateSpent,
-      vendor:        vendor        || '',
+      receiptPhoto: receiptPhoto || '',
+      receiptDate: receiptDate || dateSpent,
+      vendor: vendor || '',
       dateSpent,
       activity: activity || null,
-      project:  project  || null,
-      program:  program  || null,
-      notes:    notes    || '',
-      status:     'pending',
+      project: project || null,
+      program: program || null,
+      notes: notes || '',
+      source: source === 'scanned' ? 'scanned' : 'manual',
+      status: 'pending',
       recordedBy: req.user._id,
     })
 
     await expense.populate([
-      { path:'recordedBy', select:'firstName lastName role' },
-      { path:'activity',   select:'title' },
-      { path:'project',    select:'title' },
-      { path:'program',    select:'title' },
+      { path: 'recordedBy', select: 'firstName lastName role' },
+      { path: 'activity', select: 'title' },
+      { path: 'project', select: 'title' },
+      { path: 'program', select: 'title' },
     ])
 
     await AuditLog.create({
-      user:    req.user._id,
-      action:  'RECORD_EXPENSE',
-      details: `${req.user.firstName} ${req.user.lastName} recorded expense: "${title}" ₱${amount} — Receipt #${receiptNumber || 'N/A'} from ${vendor || 'N/A'} on ${dateSpent}`,
+      user: req.user._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      action: 'RECORD_EXPENSE',
+      details: `${req.user.firstName} ${req.user.lastName} recorded ${expense.source} expense: "${title}" ₱${finalAmount} (${itemList.length} item/s) from ${vendor || 'N/A'} on ${dateSpent}`,
     })
 
     res.status(201).json({ message: 'Expense recorded. Waiting for Chairperson approval.', expense })
@@ -259,7 +276,7 @@ const approveExpense = async (req, res) => {
     if (expense.isVoided) return res.status(400).json({ message: 'Cannot approve a voided expense.' })
     if (expense.status === 'approved') return res.status(400).json({ message: 'Already approved.' })
 
-    expense.status     = 'approved'
+    expense.status = 'approved'
     expense.approvedBy = req.user._id
     expense.approvedAt = new Date()
     await expense.save()
@@ -267,15 +284,17 @@ const approveExpense = async (req, res) => {
     // Sync actual cost to activity
     if (expense.activity) {
       const actExpenses = await Expense.find({
-        activity: expense.activity, status:'approved', isVoided:false
+        activity: expense.activity, status: 'approved', isVoided: false
       })
-      const total = actExpenses.reduce((sum,e) => sum + e.amount, 0)
+      const total = actExpenses.reduce((sum, e) => sum + e.amount, 0)
       await Activity.findByIdAndUpdate(expense.activity, { actualCost: total })
     }
 
     await AuditLog.create({
-      user:    req.user._id,
-      action:  'APPROVE_EXPENSE',
+      user: req.user._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      action: 'APPROVE_EXPENSE',
       details: `${req.user.firstName} ${req.user.lastName} APPROVED expense: "${expense.title}" ₱${expense.amount}`,
     })
 
@@ -296,15 +315,17 @@ const rejectExpense = async (req, res) => {
     if (!expense) return res.status(404).json({ message: 'Expense not found.' })
     if (expense.status === 'approved') return res.status(400).json({ message: 'Cannot reject an already approved expense.' })
 
-    expense.status          = 'rejected'
-    expense.rejectedBy      = req.user._id
-    expense.rejectedAt      = new Date()
+    expense.status = 'rejected'
+    expense.rejectedBy = req.user._id
+    expense.rejectedAt = new Date()
     expense.rejectionReason = reason
     await expense.save()
 
     await AuditLog.create({
-      user:    req.user._id,
-      action:  'REJECT_EXPENSE',
+      user: req.user._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      action: 'REJECT_EXPENSE',
       details: `${req.user.firstName} ${req.user.lastName} REJECTED expense: "${expense.title}" ₱${expense.amount}. Reason: ${reason}`,
     })
 
@@ -325,16 +346,18 @@ const voidExpense = async (req, res) => {
     if (!expense) return res.status(404).json({ message: 'Expense not found.' })
     if (expense.isVoided) return res.status(400).json({ message: 'Already voided.' })
 
-    expense.isVoided   = true
+    expense.isVoided = true
     expense.voidReason = reason
-    expense.voidedBy   = req.user._id
-    expense.voidedAt   = new Date()
-    expense.status     = 'voided'
+    expense.voidedBy = req.user._id
+    expense.voidedAt = new Date()
+    expense.status = 'voided'
     await expense.save()
 
     await AuditLog.create({
-      user:    req.user._id,
-      action:  'VOID_EXPENSE',
+      user: req.user._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      action: 'VOID_EXPENSE',
       details: `${req.user.firstName} ${req.user.lastName} VOIDED expense: "${expense.title}" ₱${expense.amount}. Reason: ${reason}`,
     })
 
@@ -348,35 +371,38 @@ const voidExpense = async (req, res) => {
 
 // GET /api/finance/summary
 // Full financial summary — total funds, total expenses, balance
+// GET /api/finance/summary  (role-aware)
 const getSummary = async (req, res) => {
   try {
     const balance = await getBalance()
 
-    // Breakdown by source type
     const fundsBySource = await Fund.aggregate([
-      { $match: { isVoided:false } },
-      { $group: { _id:'$sourceType', total:{ $sum:'$amount' }, count:{ $sum:1 } } }
+      { $match: { isVoided: false } },
+      { $group: { _id: '$sourceType', total: { $sum: '$amount' }, count: { $sum: 1 } } }
     ])
-
-    // Breakdown by category
     const expensesByCategory = await Expense.aggregate([
-      { $match: { status:'approved', isVoided:false } },
-      { $group: { _id:'$category', total:{ $sum:'$amount' }, count:{ $sum:1 } } }
+      { $match: { status: 'approved', isVoided: false } },
+      { $group: { _id: '$category', total: { $sum: '$amount' }, count: { $sum: 1 } } }
+    ])
+    const pendingCount = await Expense.countDocuments({ status: 'pending', isVoided: false })
+    const pendingTotal = await Expense.aggregate([
+      { $match: { status: 'pending', isVoided: false } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
     ])
 
-    // Pending expenses waiting for approval
-    const pendingCount = await Expense.countDocuments({ status:'pending', isVoided:false })
-    const pendingTotal = await Expense.aggregate([
-      { $match: { status:'pending', isVoided:false } },
-      { $group: { _id:null, total:{ $sum:'$amount' } } }
-    ])
+    // Kabataan see ONLY utilized funds (what was spent) — never total funds or balance,
+    // per the SK Chairperson's directive to avoid issues over the full budget figure.
+    if (req.user?.role === 'kabataan') {
+      return res.json({
+        kabataanView: true,
+        totalUtilized: balance.totalExpenses,
+        expensesByCategory,
+      })
+    }
 
     res.json({
       ...balance,
-      pendingExpenses: {
-        count: pendingCount,
-        total: pendingTotal[0]?.total || 0,
-      },
+      pendingExpenses: { count: pendingCount, total: pendingTotal[0]?.total || 0 },
       fundsBySource,
       expensesByCategory,
     })
@@ -389,21 +415,21 @@ const getSummary = async (req, res) => {
 // Full transaction ledger — every fund and expense in chronological order
 const getLedger = async (req, res) => {
   try {
-    const funds = await Fund.find({ isVoided:false })
-      .populate('recordedBy','firstName lastName role')
+    const funds = await Fund.find({ isVoided: false })
+      .populate('recordedBy', 'firstName lastName role')
       .lean()
 
-    const expenses = await Expense.find({ status:'approved', isVoided:false })
-      .populate('recordedBy','firstName lastName role')
-      .populate('approvedBy','firstName lastName role')
-      .populate('activity','title')
+    const expenses = await Expense.find({ status: 'approved', isVoided: false })
+      .populate('recordedBy', 'firstName lastName role')
+      .populate('approvedBy', 'firstName lastName role')
+      .populate('activity', 'title')
       .lean()
 
     // Combine and sort by date
     const ledger = [
-      ...funds.map(f => ({ ...f, entryType:'fund', date: f.dateReceived })),
-      ...expenses.map(e => ({ ...e, entryType:'expense', date: e.dateSpent })),
-    ].sort((a,b) => new Date(a.date) - new Date(b.date))
+      ...funds.map(f => ({ ...f, entryType: 'fund', date: f.dateReceived })),
+      ...expenses.map(e => ({ ...e, entryType: 'expense', date: e.dateSpent })),
+    ].sort((a, b) => new Date(a.date) - new Date(b.date))
 
     // Running balance
     let runningBalance = 0

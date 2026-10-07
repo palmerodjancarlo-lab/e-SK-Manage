@@ -5,9 +5,9 @@ const AuditLog     = require('../models/AuditLog')
 const getAnnouncements = async (req, res) => {
   try {
     const { category, search } = req.query
-    let query = { isArchived: false }
+    const query = {}
 
-    if (category) query.category = category
+    if (category && category !== 'All') query.category = category
     if (search) {
       query.$or = [
         { title:   { $regex: search, $options: 'i' } },
@@ -54,7 +54,7 @@ const createAnnouncement = async (req, res) => {
       user: req.user._id,
       action: 'CREATE_ANNOUNCEMENT',
       details: `Created announcement: ${announcement.title}`
-    })
+    }).catch(() => {})
 
     res.status(201).json({ message: 'Announcement created', announcement })
   } catch (error) {
@@ -87,7 +87,7 @@ const deleteAnnouncement = async (req, res) => {
       user: req.user._id,
       action: 'DELETE_ANNOUNCEMENT',
       details: `Deleted announcement ID: ${req.params.id}`
-    })
+    }).catch(() => {})
 
     res.json({ message: 'Announcement deleted' })
   } catch (error) {
@@ -99,6 +99,7 @@ const deleteAnnouncement = async (req, res) => {
 const togglePin = async (req, res) => {
   try {
     const announcement = await Announcement.findById(req.params.id)
+    if (!announcement) return res.status(404).json({ message: 'Announcement not found' })
     announcement.isPinned = !announcement.isPinned
     await announcement.save()
     res.json({ message: `Announcement ${announcement.isPinned ? 'pinned' : 'unpinned'}`, announcement })

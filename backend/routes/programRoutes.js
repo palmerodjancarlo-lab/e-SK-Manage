@@ -8,13 +8,17 @@ const {
   getProjects, createProject, updateProject, deleteProject,
   getActivities, createActivity, updateActivity,
   recordAttendance, getAttendance,
-  addPhoto, deletePhoto,
+  addPhoto, deletePhoto, getPublicPrograms,
 } = require('../controllers/programController')
 
 // Who can manage programs/projects/activities
 const MANAGE  = ['admin','sk_chairperson']
 const SK_ALL  = ['admin','sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']
 const ATTEND  = ['admin','sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']
+
+// ── Public PPA (no login) — used by the landing page AND kabataan.
+// MUST be declared before '/:id' so 'public' isn't matched as an :id.
+router.get('/public', getPublicPrograms)
 
 // ── Programs
 router.get('/',      protect, getPrograms)       // all authenticated
@@ -37,7 +41,6 @@ router.put('/activities/:id',                  protect, authorize(...MANAGE), up
 // ── Attendance (SK officials record attendance, not kabataan)
 router.get('/activities/:id/attendance',  protect, authorize(...ATTEND), getAttendance)
 router.post('/activities/:id/attendance', protect, authorize(...ATTEND), recordAttendance)
-
 
 // ── PPA Photos (Chairperson, Secretary can add — proof/progress) ──
 const PHOTO_ROLES = ['admin','sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']

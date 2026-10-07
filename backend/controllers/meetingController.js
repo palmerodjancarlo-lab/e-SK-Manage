@@ -1,8 +1,9 @@
 // meetingController.js
 // - QR token auto-generated when meeting is created
 // - SK officer activates it when event starts
-// - Auto-announcement on create
+// - Auto-announcement on create (linked back via sourceType/sourceId)
 // - Comments / open forum after event
+// - Volunteer sign-up
 
 const Meeting      = require('../models/Meeting')
 const Announcement = require('../models/Announcement')
@@ -22,7 +23,7 @@ const getMeetings = async (req, res) => {
     const meetings = await Meeting
       .find()
       .populate('organizer', 'firstName lastName')
-      .populate('comments.user', 'firstName lastName role')
+      .populate('comments.user', 'firstName lastName role photo')
       .sort({ date: 1 })
 
     // Strip qrToken from kabataan users — they must scan physically
@@ -42,11 +43,12 @@ const getMeetings = async (req, res) => {
 const getMeeting = async (req, res) => {
   try {
     const meeting = await Meeting.findById(req.params.id)
-      .populate('organizer',       'firstName lastName')
-      .populate('checkedIn.user',  'firstName lastName barangay municipality')
-      .populate('attendance.user', 'firstName lastName')
-      .populate('rsvp.user',       'firstName lastName')
-      .populate('comments.user',   'firstName lastName role')
+      .populate('organizer',        'firstName lastName')
+      .populate('checkedIn.user',   'firstName lastName barangay municipality')
+      .populate('attendance.user',  'firstName lastName')
+      .populate('rsvp.user',        'firstName lastName')
+      .populate('comments.user',    'firstName lastName role photo')
+      .populate('volunteers.user',  'firstName lastName photo contactNumber purok')
     if (!meeting) return res.status(404).json({ message: 'Meeting not found' })
 
     // Strip qrToken for kabataan users
@@ -59,7 +61,7 @@ const getMeeting = async (req, res) => {
 }
 
 // @POST /api/meetings
-// Auto-generates QR token (inactive until SK activates) + auto-creates announcement
+// Auto-generates QR token (inactive until SK activates) + auto-creates a linked announcement
 const createMeeting = async (req, res) => {
   try {
     // SK decides the points. Use their value first; fall back to type default only if not given.
@@ -76,22 +78,27 @@ const createMeeting = async (req, res) => {
       qrActive:     false,
     })
 
-    // Auto-create announcement
+    // Auto-create a linked announcement. Details live in `meta` (structured),
+    // so the UI renders a clean labeled layout instead of a text blob.
     try {
-      const dateStr = new Date(meeting.date).toLocaleDateString('en-PH', {
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-      })
       await Announcement.create({
-        title:    `📅 ${meeting.type}: ${meeting.title}`,
-        content:  `A new SK ${meeting.type} has been scheduled.\n\n` +
-                  `📅 Date: ${dateStr}\n` +
-                  (meeting.time   ? `⏰ Time: ${meeting.time}\n`  : '') +
-                  (meeting.venue  ? `📍 Venue: ${meeting.venue}${meeting.municipality ? ', ' + meeting.municipality : ''}\n` : '') +
-                  (meeting.agenda ? `\n📋 Agenda:\n${meeting.agenda}\n` : '') +
-                  `\nAttend and earn ⭐ ${pts} points via QR check-in!`,
-        category: meeting.type === 'Meeting' ? 'Meetings' : 'Events',
-        author:   req.user._id,
-        isPinned: false,
+        title:      `${meeting.type}: ${meeting.title}`,
+        content:    `The SK has scheduled a new ${String(meeting.type || 'activity').toLowerCase()}. See the details below.`,
+        category:   'Events',
+        sourceType: 'meeting',
+        sourceId:   meeting._id,
+        meta: {
+          kind:          'meeting',
+          eventType:     meeting.type || '',
+          date:          meeting.date || null,
+          time:          meeting.time || '',
+          venue:         meeting.venue ? `${meeting.venue}${meeting.municipality ? ', ' + meeting.municipality : ''}` : '',
+          agenda:        meeting.agenda || '',
+          points:        pts,
+          volunteerRole: meeting.needsVolunteers ? (meeting.volunteerRole || 'Volunteers needed') : '',
+        },
+        author:     req.user._id,
+        isPinned:   false,
       })
     } catch (annErr) {
       console.log('Auto-announcement (non-critical):', annErr.message)
@@ -114,6 +121,17 @@ const updateMeeting = async (req, res) => {
   try {
     const meeting = await Meeting.findByIdAndUpdate(req.params.id, req.body, { new: true })
     if (!meeting) return res.status(404).json({ message: 'Meeting not found' })
+
+    // Keep the linked announcement's headline in sync with the meeting title
+    try {
+      await Announcement.updateMany(
+        { sourceType: 'meeting', sourceId: meeting._id },
+        { title: `${meeting.type}: ${meeting.title}` }
+      )
+    } catch (annErr) {
+      console.log('Announcement sync (non-critical):', annErr.message)
+    }
+
     res.json({ message: 'Meeting updated', meeting })
   } catch (error) {
     res.status(500).json({ message: error.message })
@@ -121,9 +139,11 @@ const updateMeeting = async (req, res) => {
 }
 
 // @DELETE /api/meetings/:id
+// Deleting a meeting also removes its linked announcement(s).
 const deleteMeeting = async (req, res) => {
   try {
     await Meeting.findByIdAndDelete(req.params.id)
+    await Announcement.deleteMany({ sourceType: 'meeting', sourceId: req.params.id }).catch(() => {})
     await AuditLog.create({
       user: req.user._id, action: 'DELETE_MEETING',
       details: `Deleted meeting ID: ${req.params.id}`,
@@ -165,6 +185,69 @@ const updateAttendance = async (req, res) => {
   }
 }
 
+// @PUT /api/meetings/:id/volunteer
+// Kabataan sign up as a volunteer, or withdraw if already signed up (toggle).
+const volunteerMeeting = async (req, res) => {
+  try {
+    const meeting = await Meeting.findById(req.params.id)
+    if (!meeting) return res.status(404).json({ message: 'Meeting not found' })
+    if (!meeting.needsVolunteers) {
+      return res.status(400).json({ message: 'This event is not accepting volunteers.' })
+    }
+
+    const idx = meeting.volunteers.findIndex(v => v.user.toString() === req.user._id.toString())
+
+    // Already signed up → withdraw
+    if (idx > -1) {
+      meeting.volunteers.splice(idx, 1)
+      await meeting.save()
+      return res.json({
+        message: 'You withdrew from volunteering.',
+        volunteering: false,
+        count: meeting.volunteers.length,
+      })
+    }
+
+    // Capacity check (0 slots = unlimited)
+    if (meeting.volunteerSlots > 0 && meeting.volunteers.length >= meeting.volunteerSlots) {
+      return res.status(400).json({ message: 'Volunteer slots are already full.' })
+    }
+
+    meeting.volunteers.push({ user: req.user._id, note: (req.body.note || '').trim() })
+    await meeting.save()
+
+    await AuditLog.create({
+      user: req.user._id, action: 'VOLUNTEER_SIGNUP',
+      details: `${req.user.firstName} ${req.user.lastName} volunteered for: ${meeting.title}`,
+    }).catch(() => {})
+
+    res.json({
+      message: 'Thank you for volunteering!',
+      volunteering: true,
+      count: meeting.volunteers.length,
+    })
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+// @GET /api/meetings/:id/volunteers
+const getVolunteers = async (req, res) => {
+  try {
+    const meeting = await Meeting.findById(req.params.id)
+      .populate('volunteers.user', 'firstName lastName photo contactNumber purok')
+    if (!meeting) return res.status(404).json({ message: 'Not found' })
+    res.json({
+      volunteers: meeting.volunteers,
+      total: meeting.volunteers.length,
+      slots: meeting.volunteerSlots,
+      role: meeting.volunteerRole,
+    })
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
 // @POST /api/meetings/:id/generate-qr
 // SK Officer activates the QR when event starts
 const generateQR = async (req, res) => {
@@ -199,14 +282,12 @@ const deactivateQR = async (req, res) => {
       { qrActive: false },
       { new: true }
     )
+    if (!meeting) return res.status(404).json({ message: 'Meeting not found' })
 
-    // Move the related announcement to "History" category
+    // Move this meeting's linked announcement to the "History" category (event ended).
     try {
       await Announcement.updateMany(
-        {
-          title: { $regex: meeting.title, $options: 'i' },
-          category: { $in: ['Events', 'Meetings'] }
-        },
+        { sourceType: 'meeting', sourceId: meeting._id },
         { category: 'History' }
       )
     } catch (annErr) {
@@ -300,7 +381,7 @@ const addComment = async (req, res) => {
     meeting.comments.push({ user: req.user._id, text: text.trim(), createdAt: new Date() })
     await meeting.save()
 
-    const updated  = await Meeting.findById(req.params.id).populate('comments.user', 'firstName lastName role')
+    const updated  = await Meeting.findById(req.params.id).populate('comments.user', 'firstName lastName role photo')
     const newComment = updated.comments[updated.comments.length - 1]
 
     res.status(201).json({ message: 'Comment posted', comment: newComment })
@@ -332,6 +413,7 @@ const deleteComment = async (req, res) => {
 
 module.exports = {
   getMeetings, getMeeting, createMeeting, updateMeeting, deleteMeeting,
-  rsvpMeeting, updateAttendance, generateQR, deactivateQR,
+  rsvpMeeting, updateAttendance, volunteerMeeting, getVolunteers,
+  generateQR, deactivateQR,
   checkIn, getCheckIns, addComment, deleteComment,
 }

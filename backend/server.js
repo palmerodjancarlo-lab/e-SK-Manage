@@ -3,17 +3,17 @@ const dotenv    = require('dotenv')
 const cors      = require('cors')
 const morgan    = require('morgan')
 const connectDB = require('./config/db')
-const programRoutes = require('./routes/programRoutes')
-const authorize = require('./middleware/authorize')
+
 
 dotenv.config()
 connectDB()
 
 const app = express()
+app.set('trust proxy', 1)  // real client IP behind Render/Vercel proxy
 
 app.use(cors({
   origin: [
-    'http://localhost:5173', 
+    'http://localhost:5173',
     'https://e-sk-manage.vercel.app'
   ],
   credentials: true
@@ -22,7 +22,10 @@ app.use(cors({
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 app.use(morgan('dev'))
+
 const BASE_URI = process.env.BASE_URI || '/api/v1'
+
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok', uptime: process.uptime() }));
 
 app.use(`${BASE_URI}/auth`,          require('./routes/authRoutes'))
 app.use(`${BASE_URI}/announcements`, require('./routes/announcementRoutes'))
@@ -33,6 +36,9 @@ app.use(`${BASE_URI}/admin`,         require('./routes/adminRoutes'))
 app.use(`${BASE_URI}/finance`,       require('./routes/financeRoutes'))
 app.use(`${BASE_URI}/upload`,        require('./routes/uploadRoutes'))
 app.use(`${BASE_URI}/rewards`,       require('./routes/rewardRoutes'))
+app.use(`${BASE_URI}/budget`,        require('./routes/budgetRoutes'))
+app.use(`${BASE_URI}/public`,        require('./routes/publicRoutes'))
+app.use(`${BASE_URI}/settings`, require('./routes/settingRoutes'));
 
 app.get('/', (req, res) => {
   res.json({ message: '✅ e-SK Manage API is running' })
@@ -47,8 +53,8 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: err.message || 'Server Error' })
 })
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`)
   console.log(`Base URI: http://localhost:${PORT}${BASE_URI}`)
 })

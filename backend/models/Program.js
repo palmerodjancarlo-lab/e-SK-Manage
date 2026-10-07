@@ -1,6 +1,7 @@
 // models/Program.js
 // Umbrella — highest level. Contains multiple Projects.
 // Budget = sum of all its Projects' budgets (rolled up automatically)
+// Also carries the planning metadata used to generate the CBYDP / ABYIP forms.
 
 const mongoose = require('mongoose')
 
@@ -17,23 +18,43 @@ const programSchema = new mongoose.Schema({
 
   // Fund sources — multiple sources allowed (barangay allocation, sponsors, donations)
   fundSources: [{
-    source:      { type:String, required:true },  // e.g. "Barangay Allocation", "Sponsor: SM", "Donation: DSWD"
+    source:      { type:String, required:true },
     amount:      { type:Number, required:true, min:0 },
     description: { type:String },
     receivedAt:  { type:Date, default:Date.now },
   }],
 
-  // Total budget is computed from fundSources
-  totalBudget: { type:Number, default:0 },
-
-  // Computed from projects (virtual or updated on save)
+  totalBudget:      { type:Number, default:0 },
   totalProjectCost: { type:Number, default:0 },
 
+  // ── ABYIP / CBYDP planning fields ──────────────────────────────────────────
+  fiscalYear:           { type:Number },           // ABYIP year this PPA belongs to
+  area:                 { type:String, default:'' },// ABYIP grouping, e.g. "General Administrative Program"
+  referenceCode:        { type:String, default:'' },// e.g. "1000-001-001"
+  centerOfParticipation:{ type:String, default:'' },// CBYDP grouping (Education, Environment, …)
+  objective:            { type:String, default:'' },// CBYDP
+  performanceIndicator: { type:String, default:'' },// CBYDP & ABYIP
+  expectedResults:      { type:String, default:'' },// ABYIP
+  dateOfImplementation: { type:String, default:'' },// ABYIP text range, e.g. "January - December 2026"
+  personResponsible:    { type:String, default:'' },// e.g. "SK Treasurer", "SK C.O. Education"
 
-  // Progress/proof photos — SK uploads pictures of the actual PPA
-  // so kabataan can see the project is real and track progress
+  // CBYDP 3-year targets
+  targets: {
+    fy1: { type:String, default:'' },
+    fy2: { type:String, default:'' },
+    fy3: { type:String, default:'' },
+  },
+
+  // ABYIP budget classification (MOOE / Personnel Services / Capital Outlay)
+  budget: {
+    mooe:              { type:Number, default:0 },
+    personnelServices: { type:Number, default:0 },
+    capitalOutlay:     { type:Number, default:0 },
+  },
+  // ───────────────────────────────────────────────────────────────────────────
+
   photos: [{
-    url:        { type:String, required:true },  // Cloudinary URL
+    url:        { type:String, required:true },
     caption:    { type:String, default:'' },
     uploadedBy: { type:mongoose.Schema.Types.ObjectId, ref:'User' },
     uploadedAt: { type:Date, default:Date.now },
@@ -44,6 +65,13 @@ const programSchema = new mongoose.Schema({
 // Virtual: remaining budget
 programSchema.virtual('remainingBudget').get(function() {
   return this.totalBudget - this.totalProjectCost
+})
+
+// Virtual: ABYIP line total (MOOE + PS + CO), falls back to totalBudget
+programSchema.virtual('abyipTotal').get(function() {
+  const b = this.budget || {}
+  const sum = (b.mooe || 0) + (b.personnelServices || 0) + (b.capitalOutlay || 0)
+  return sum || this.totalBudget || 0
 })
 
 module.exports = mongoose.model('Program', programSchema)

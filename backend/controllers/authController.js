@@ -16,13 +16,22 @@ const generateToken = (id) =>
 // SK officials get accounts created by Admin
 const register = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, contactNumber, address, purok } = req.body
+    const { firstName, lastName, email, password, contactNumber, address, purok,
+            sex, isPWD, birthDate, civilStatus, idPhoto } = req.body
 
     if (!firstName || !lastName || !email || !password) {
       return res.status(400).json({ message: 'Please fill all required fields.' })
     }
     if (!address || !purok) {
       return res.status(400).json({ message: 'Please provide your purok and complete address in Barangay Tawiran.' })
+    }
+    if (!sex || !birthDate) {
+      return res.status(400).json({ message: 'Please provide your sex and birthdate.' })
+    }
+    // SK age range 15–30
+    const _age = Math.floor((Date.now() - new Date(birthDate).getTime()) / (365.25*24*60*60*1000))
+    if (isNaN(_age) || _age < 15 || _age > 30) {
+      return res.status(400).json({ message: 'SK membership is for ages 15 to 30. Please check your birthdate.' })
     }
 
     const exists = await User.findOne({ email })
@@ -46,6 +55,11 @@ const register = async (req, res) => {
       contactNumber: contactNumber || '',
       address:       address || '',
       purok:         purok || '',
+      sex:           sex || '',
+      isPWD:         !!isPWD,
+      birthDate:     birthDate || null,
+      civilStatus:   civilStatus || '',
+      idPhoto:       idPhoto || '',
       isVerified:          false,
       isActive:            true,
       verificationCode:    code,
@@ -85,7 +99,7 @@ const login = async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required.' })
     }
 
-    const user = await User.findOne({ email }).select('+password')
+    const user = await User.findOne({ email: (email || '').trim().toLowerCase() }).select('+password')
     if (!user) return res.status(401).json({ message: 'Invalid email or password.' })
 
     const isMatch = await user.matchPassword(password)
@@ -104,7 +118,8 @@ const login = async (req, res) => {
       })
     }
 
-    await AuditLog.create({
+    // Fire-and-forget — don't make the user wait on the audit write.
+    AuditLog.create({
       user:    user._id,
       action:  'LOGIN',
       details: `${user.email} logged in as ${user.role}`,
@@ -144,7 +159,8 @@ const getProfile = async (req, res) => {
 // @PUT /api/auth/profile
 const updateProfile = async (req, res) => {
   try {
-    const { firstName, lastName, email, contactNumber, address, purok, photo } = req.body
+    const { firstName, lastName, email, contactNumber, address, purok, photo,
+            sex, isPWD, birthDate, civilStatus, idPhoto } = req.body
 
     // If email is being changed, make sure it's not already taken by someone else
     if (email) {
@@ -155,6 +171,11 @@ const updateProfile = async (req, res) => {
     }
 
     const updates = { firstName, lastName, contactNumber, address, purok }
+    if (sex !== undefined) updates.sex = sex
+    if (isPWD !== undefined) updates.isPWD = !!isPWD
+    if (birthDate) updates.birthDate = birthDate
+    if (civilStatus !== undefined) updates.civilStatus = civilStatus
+    if (idPhoto !== undefined) updates.idPhoto = idPhoto
     if (email) updates.email = email
     if (photo !== undefined) updates.photo = photo
 
@@ -230,11 +251,18 @@ const deleteAccount = async (req, res) => {
 // (SK needs to see officials + kabataan for members page)
 const getMembers = async (req, res) => {
   try {
-    const User = require('../models/User')
     const { role } = req.query
     const filter = role ? { role } : {}
+    // NOTE: include the verification/demographic fields the Members page needs
+    // (idVerified is what drives the Verified/Pending badge — it was missing before).
     const members = await User.find(filter)
-      .select('firstName lastName email role points isActive municipality barangay position photo address purok contactNumber createdAt')
+      .select([
+        'firstName', 'lastName', 'email', 'role', 'position',
+        'points', 'isActive', 'isVerified', 'idVerified', 'idVerifiedAt',
+        'isPWD', 'sex', 'birthDate', 'civilStatus',
+        'municipality', 'barangay', 'photo', 'address', 'purok',
+        'contactNumber', 'createdAt',
+      ].join(' '))
       .sort({ createdAt: -1 })
     res.json({ users: members })
   } catch (error) {

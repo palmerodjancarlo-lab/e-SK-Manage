@@ -7,6 +7,8 @@ const AuditLog = require('../models/AuditLog')
 
 // Roles admin can create
 const SK_ROLES = ['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']
+const SINGLE_ROLES = ['sk_chairperson','sk_secretary','sk_treasurer']
+const DEFAULT_TEMP_PASSWORD = 'SKManage2026'
 
 // GET /api/admin/users
 const getUsers = async (req, res) => {
@@ -50,7 +52,7 @@ const createSKAccount = async (req, res) => {
     if (exists) return res.status(400).json({ message: 'Email already registered.' })
 
     // Check role limits — only 1 chairperson, 1 secretary, 1 treasurer allowed
-    if (['sk_chairperson','sk_secretary','sk_treasurer'].includes(role)) {
+    if (SINGLE_ROLES.includes(role)) {
       const existing = await User.findOne({ role })
       if (existing) {
         return res.status(400).json({ message: `There is already an existing ${role.replace('sk_','SK ')}. Only one is allowed.` })
@@ -85,6 +87,72 @@ const createSKAccount = async (req, res) => {
         position: user.position,
       }
     })
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+// POST /api/admin/bulk-create-sk
+// Admin creates many SK official accounts from an uploaded roster (parsed on the client).
+// Body: { officers: [{ firstName, lastName, email, role, password?, position?, contactNumber?, address? }] }
+const bulkCreateSK = async (req, res) => {
+  try {
+    const { officers } = req.body
+    if (!Array.isArray(officers) || officers.length === 0) {
+      return res.status(400).json({ message: 'No officers to create.' })
+    }
+
+    // which single-only roles are already taken (in the DB)
+    const takenSingles = {}
+    for (const r of SINGLE_ROLES) {
+      takenSingles[r] = !!(await User.findOne({ role: r }))
+    }
+
+    const created = []
+    const skipped = []
+    const seenEmails = new Set()
+
+    for (let i = 0; i < officers.length; i++) {
+      const o = officers[i] || {}
+      const firstName = String(o.firstName || '').trim()
+      const lastName  = String(o.lastName || '').trim()
+      const email     = String(o.email || '').trim().toLowerCase()
+      const role      = o.role
+      const password  = (o.password && String(o.password).length >= 6) ? String(o.password) : DEFAULT_TEMP_PASSWORD
+      const label     = email || `${firstName} ${lastName}`.trim() || `Row ${i + 1}`
+
+      if (!firstName || !lastName || !email || !role) { skipped.push({ row: i + 1, label, reason: 'Missing name, email, or role.' }); continue }
+      if (!SK_ROLES.includes(role)) { skipped.push({ row: i + 1, label, reason: 'Invalid role.' }); continue }
+      if (!/^\S+@\S+\.\S+$/.test(email)) { skipped.push({ row: i + 1, label, reason: 'Invalid email address.' }); continue }
+      if (seenEmails.has(email)) { skipped.push({ row: i + 1, label, reason: 'Duplicate email in the file.' }); continue }
+      if (SINGLE_ROLES.includes(role) && takenSingles[role]) {
+        skipped.push({ row: i + 1, label, reason: `An ${role.replace('sk_', 'SK ')} already exists — only one allowed.` }); continue
+      }
+
+      const exists = await User.findOne({ email })
+      if (exists) { skipped.push({ row: i + 1, label, reason: 'Email already registered.' }); continue }
+
+      try {
+        const user = await User.create({
+          firstName, lastName, email, password, role,
+          position: o.position || '', contactNumber: o.contactNumber || '', address: o.address || '',
+          municipality: 'Santa Cruz', barangay: 'Tawiran', isVerified: true, isActive: true,
+        })
+        seenEmails.add(email)
+        if (SINGLE_ROLES.includes(role)) takenSingles[role] = true
+        created.push({ _id: user._id, firstName, lastName, email, role })
+      } catch (e) {
+        skipped.push({ row: i + 1, label, reason: e.message || 'Could not create account.' })
+      }
+    }
+
+    await AuditLog.create({
+      user: req.user._id,
+      action: 'BULK_CREATE_SK',
+      details: `Admin bulk-created ${created.length} SK account(s); ${skipped.length} skipped.`,
+    }).catch(() => {})
+
+    res.status(201).json({ created, skipped, summary: { created: created.length, skipped: skipped.length } })
   } catch (error) {
     res.status(500).json({ message: error.message })
   }
@@ -178,13 +246,20 @@ const deleteUser = async (req, res) => {
 // GET /api/admin/stats
 const getStats = async (req, res) => {
   try {
-    const [total, active, kabataan, skOfficials] = await Promise.all([
+    const [total, active, kabataan, skOfficials, male, female, pwd, verified] = await Promise.all([
       User.countDocuments(),
       User.countDocuments({ isActive:true }),
       User.countDocuments({ role:'kabataan' }),
       User.countDocuments({ role:{ $in: ['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad'] } }),
+      User.countDocuments({ role:'kabataan', sex:'Male' }),
+      User.countDocuments({ role:'kabataan', sex:'Female' }),
+      User.countDocuments({ role:'kabataan', isPWD:true }),
+      User.countDocuments({ role:'kabataan', idVerified:true }),
     ])
-    res.json({ stats: { totalUsers:total, activeUsers:active, kabataanCount:kabataan, skOfficialCount:skOfficials } })
+    res.json({ stats: {
+      totalUsers:total, activeUsers:active, kabataanCount:kabataan, skOfficialCount:skOfficials,
+      maleCount:male, femaleCount:female, pwdCount:pwd, verifiedCount:verified,
+    } })
   } catch (error) {
     res.status(500).json({ message: error.message })
   }
@@ -193,19 +268,36 @@ const getStats = async (req, res) => {
 // GET /api/admin/logs
 const getAuditLogs = async (req, res) => {
   try {
-    const AuditLog = require('../models/AuditLog')
     const logs = await AuditLog.find()
       .populate('user','firstName lastName email role')
       .sort({ createdAt:-1 })
-      .limit(100)
+      .limit(200)
     res.json({ logs })
   } catch (error) {
     res.status(500).json({ message: error.message })
   }
 }
 
+// PUT /api/admin/users/:id/verify  — head confirms a kabataan is a real Tawiran resident
+const verifyResidency = async (req, res) => {
+  try {
+    const { verified } = req.body
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { idVerified: !!verified, idVerifiedBy: req.user._id, idVerifiedAt: new Date() },
+      { new: true }
+    ).select('-password')
+    if (!user) return res.status(404).json({ message: 'User not found.' })
+    await AuditLog.create({
+      user: req.user._id, action: verified ? 'VERIFY_RESIDENCY' : 'UNVERIFY_RESIDENCY',
+      details: `${req.user.firstName} ${req.user.lastName} ${verified?'verified':'un-verified'} residency of ${user.firstName} ${user.lastName}`,
+    }).catch(()=>{})
+    res.json({ message: verified ? 'Resident verified.' : 'Verification removed.', user })
+  } catch (error) { res.status(500).json({ message: error.message }) }
+}
+
 module.exports = {
-  getUsers, getUser, createSKAccount, updateUser,
+  getUsers, getUser, createSKAccount, bulkCreateSK, updateUser,
   toggleActive, resetPassword, deleteUser,
-  getStats, getAuditLogs,
+  getStats, getAuditLogs, verifyResidency,
 }

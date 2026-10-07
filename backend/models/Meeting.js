@@ -1,5 +1,5 @@
 // Meeting.js model
-// Includes: QR check-in, attendance, RSVP, comments (open forum)
+// Includes: QR check-in, attendance, RSVP, comments (open forum), volunteer sign-up
 
 const mongoose = require('mongoose')
 
@@ -67,6 +67,17 @@ const MeetingSchema = new mongoose.Schema({
 
   // Open forum — kabataan users comment after event
   comments: [CommentSchema],
+
+  // ── Volunteer sign-up ──
+  // SK officer flags an event as needing volunteers; kabataan can sign up.
+  needsVolunteers: { type: Boolean, default: false },
+  volunteerRole:   { type: String, default: '' },   // what help is needed (e.g. "Registration & crowd control")
+  volunteerSlots:  { type: Number, default: 0 },     // 0 = unlimited
+  volunteers: [{
+    user:       { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    note:       { type: String, default: '', maxlength: 300 },
+    signedUpAt: { type: Date, default: Date.now },
+  }],
 
 }, { timestamps: true })
 
