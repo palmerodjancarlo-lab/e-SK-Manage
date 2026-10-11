@@ -10,7 +10,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import api from '../../lib/api';
-import { Card, CardContent, Spinner, EmptyState } from '../../components/ui';
+import { Card, CardContent, Spinner, EmptyState, BrandBanner, AnimatedNumber } from '../../components/ui';
 import { useAuth } from '../../context/auth-store';
 import skLogo from '../../assets/sk-logo.svg';
 
@@ -18,6 +18,9 @@ const peso = (n) => `₱${Number(n || 0).toLocaleString('en-PH', { minimumFracti
 const num = (n) => Number(n || 0).toLocaleString('en-PH');
 const asArray = (d) => (Array.isArray(d) ? d : d?.meetings || d?.programs || d?.announcements || d?.projects || d?.users || []);
 const safeGet = (url) => api.get(url).then((r) => r.data).catch(() => null);
+// List endpoints share their cache keys with the full pages (Programs, Meetings, Announcements),
+// which store plain arrays — so store arrays here too, or those pages get the wrong shape.
+const safeList = (url) => safeGet(url).then(asArray);
 const dateOf = (x) => new Date(x.date || x.scheduledAt || x.startsAt || 0);
 
 function greeting(h) {
@@ -38,20 +41,15 @@ const ROLE_META = {
 function Hero({ role, name, today }) {
   const meta = ROLE_META[role] || { title: 'SK Officer', sub: 'Dashboard' };
   return (
-    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-accent p-6 text-primary-fg shadow-lg sm:p-8">
-      <div className="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10" />
-      <div className="pointer-events-none absolute -bottom-16 right-28 h-36 w-36 rounded-full bg-white/5" />
-      <div className="pointer-events-none absolute right-6 top-6 opacity-20 sm:opacity-30">
-        <img src={skLogo} alt="" className="h-24 w-24" />
-      </div>
-      <div className="relative flex items-center gap-4">
+    <BrandBanner>
+      <div className="flex items-center gap-4">
         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/30 backdrop-blur-sm">
           <img src={skLogo} alt="SK Barangay Tawiran" className="h-11 w-11" />
         </div>
         <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary-fg/80">Sangguniang Kabataan · Barangay Tawiran</p>
-          <h2 className="truncate text-2xl font-extrabold leading-tight sm:text-3xl">{greeting(today.getHours())}, {name}</h2>
-          <p className="mt-1 inline-flex items-center gap-2 text-sm text-primary-fg/90">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/75">Sangguniang Kabataan · Barangay Tawiran</p>
+          <h1 className="truncate text-2xl font-bold leading-tight sm:text-3xl">{greeting(today.getHours())}, {name}</h1>
+          <p className="mt-1 inline-flex items-center gap-2 text-sm text-white/85">
             <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-semibold">{meta.title}</span>
             <span className="hidden sm:inline">·</span>
             <span className="hidden sm:inline">{meta.sub}</span>
@@ -60,18 +58,18 @@ function Hero({ role, name, today }) {
           </p>
         </div>
       </div>
-    </div>
+    </BrandBanner>
   );
 }
 
 function Stat({ icon, label, value, note, accent, chip }) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-border bg-surface shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div className="group relative overflow-hidden rounded-xl border border-border bg-surface shadow-card transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-pop">
       <span className="absolute inset-x-0 top-0 h-1" style={{ background: accent }} />
       <div className="flex items-start justify-between gap-3 p-4 pt-5">
         <div className="min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-wider text-muted">{label}</p>
-          <p className="mt-1 text-2xl font-extrabold tabular-nums text-fg">{value}</p>
+          <p className="mt-1 text-2xl font-extrabold tabular-nums text-fg"><AnimatedNumber value={value} /></p>
           {note && <p className="mt-0.5 text-[11px] text-subtle">{note}</p>}
         </div>
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition group-hover:scale-110" style={{ background: chip, color: accent }}>{icon}</div>
@@ -120,9 +118,9 @@ function ListRow({ icon, title, sub, right }) {
 /* ─────────────── CHAIRPERSON / OVERVIEW ─────────────── */
 function OverviewDash({ now }) {
   const finQ = useQuery({ queryKey: ['finance', 'summary'], queryFn: () => safeGet('/finance/summary') });
-  const progQ = useQuery({ queryKey: ['programs'], queryFn: () => safeGet('/programs') });
-  const meetingsQ = useQuery({ queryKey: ['meetings'], queryFn: () => safeGet('/meetings') });
-  const membersQ = useQuery({ queryKey: ['members'], queryFn: () => safeGet('/auth/members') });
+  const progQ = useQuery({ queryKey: ['programs'], queryFn: () => safeList('/programs') });
+  const meetingsQ = useQuery({ queryKey: ['meetings'], queryFn: () => safeList('/meetings') });
+  const membersQ = useQuery({ queryKey: ['members'], queryFn: () => safeList('/auth/members') });
 
   const fin = finQ.data || {};
   const funds = fin.totalFunds ?? 0;
@@ -143,9 +141,9 @@ function OverviewDash({ now }) {
     <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat icon={<Wallet className="h-5 w-5" />} label="Balance" value={peso(balance)} note={`${usedPct}% of funds used`} accent="#10b981" chip="rgba(16,185,129,0.14)" />
-        <Stat icon={<ClipboardList className="h-5 w-5" />} label="Programs" value={num(programs.length)} note="On record" accent="#8b5cf6" chip="rgba(139,92,246,0.14)" />
+        <Stat icon={<ClipboardList className="h-5 w-5" />} label="Programs" value={num(programs.length)} note="On record" accent="rgb(var(--info))" chip="rgb(var(--info) / 0.12)" />
         <Stat icon={<CalendarDays className="h-5 w-5" />} label="Upcoming events" value={num(upcoming.length)} note="Scheduled" accent="#3b82f6" chip="rgba(59,130,246,0.14)" />
-        <Stat icon={<Users className="h-5 w-5" />} label="Kabataan" value={num(kabataan.length)} note={`${num(members.length)} total members`} accent="#6366f1" chip="rgba(99,102,241,0.14)" />
+        <Stat icon={<Users className="h-5 w-5" />} label="Kabataan" value={num(kabataan.length)} note={`${num(members.length)} total members`} accent="rgb(var(--primary))" chip="rgb(var(--primary) / 0.12)" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -185,9 +183,9 @@ function OverviewDash({ now }) {
 
 /* ─────────────── SECRETARY ─────────────── */
 function SecretaryDash({ now }) {
-  const meetingsQ = useQuery({ queryKey: ['meetings'], queryFn: () => safeGet('/meetings') });
-  const annQ = useQuery({ queryKey: ['announcements'], queryFn: () => safeGet('/announcements') });
-  const progQ = useQuery({ queryKey: ['programs'], queryFn: () => safeGet('/programs') });
+  const meetingsQ = useQuery({ queryKey: ['meetings'], queryFn: () => safeList('/meetings') });
+  const annQ = useQuery({ queryKey: ['announcements'], queryFn: () => safeList('/announcements') });
+  const progQ = useQuery({ queryKey: ['programs'], queryFn: () => safeList('/programs') });
 
   const meetings = useMemo(() => asArray(meetingsQ.data), [meetingsQ.data]);
   const announcements = useMemo(() => asArray(annQ.data), [annQ.data]);
@@ -195,6 +193,11 @@ function SecretaryDash({ now }) {
 
   const upcoming = useMemo(
     () => meetings.filter((m) => dateOf(m).getTime() >= now).sort((a, b) => dateOf(a) - dateOf(b)),
+    [meetings, now],
+  );
+  // Meetings that already happened and still have no minutes, newest first
+  const needMinutes = useMemo(
+    () => meetings.filter((m) => dateOf(m).getTime() < now && !m.minutes?.text).sort((a, b) => dateOf(b) - dateOf(a)),
     [meetings, now],
   );
   const recentAnn = useMemo(
@@ -205,32 +208,32 @@ function SecretaryDash({ now }) {
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat icon={<CalendarDays className="h-5 w-5" />} label="Upcoming meetings" value={num(upcoming.length)} note="To record minutes for" accent="#6366f1" chip="rgba(99,102,241,0.14)" />
+        <Stat icon={<CalendarDays className="h-5 w-5" />} label="Upcoming meetings" value={num(upcoming.length)} note="Scheduled" accent="rgb(var(--primary))" chip="rgb(var(--primary) / 0.12)" />
         <Stat icon={<Megaphone className="h-5 w-5" />} label="Announcements" value={num(announcements.length)} note="Posted" accent="#3b82f6" chip="rgba(59,130,246,0.14)" />
-        <Stat icon={<ClipboardList className="h-5 w-5" />} label="Programs" value={num(programs.length)} note="On record" accent="#8b5cf6" chip="rgba(139,92,246,0.14)" />
-        <Stat icon={<FileText className="h-5 w-5" />} label="Meetings logged" value={num(meetings.length)} note="Total on file" accent="#0ea5e9" chip="rgba(14,165,233,0.14)" />
+        <Stat icon={<ClipboardList className="h-5 w-5" />} label="Programs" value={num(programs.length)} note="On record" accent="rgb(var(--info))" chip="rgb(var(--info) / 0.12)" />
+        <Stat icon={<FileText className="h-5 w-5" />} label="Minutes to write" value={num(needMinutes.length)} note={`${num(meetings.length)} meetings on file`} accent="#0ea5e9" chip="rgba(14,165,233,0.14)" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-3">
           <p className="text-sm font-bold text-fg">Quick actions</p>
-          <QuickAction to="/sk/meetings" icon={<PenSquare className="h-4 w-4" />} label="Write meeting minutes" />
+          <QuickAction to={needMinutes[0] ? `/sk/meetings?minutes=${needMinutes[0]._id}` : '/sk/meetings'} icon={<PenSquare className="h-4 w-4" />} label="Write meeting minutes" />
           <QuickAction to="/sk/announcements" icon={<Megaphone className="h-4 w-4" />} label="Post an announcement" />
           <QuickAction to="/sk/members" icon={<Users className="h-4 w-4" />} label="Open KK member roster" />
         </div>
 
         <SectionCard className="lg:col-span-2" title="Meetings needing minutes">
-          {upcoming.length === 0 ? (
-            <EmptyState icon={CalendarDays} title="Nothing scheduled" description="Upcoming meetings will appear here to record." />
+          {needMinutes.length === 0 ? (
+            <EmptyState icon={CalendarDays} title="All minutes are written" description="Finished meetings without minutes will appear here." />
           ) : (
             <div className="divide-y divide-border">
-              {upcoming.slice(0, 5).map((m) => (
+              {needMinutes.slice(0, 5).map((m) => (
                 <ListRow
                   key={m._id}
                   icon={<CalendarDays className="h-4 w-4" />}
                   title={m.title || 'Meeting'}
                   sub={dateOf(m).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}
-                  right={<Link to="/sk/meetings" className="text-xs font-bold text-primary hover:underline">Record</Link>}
+                  right={<Link to={`/sk/meetings?minutes=${m._id}`} className="text-xs font-bold text-primary hover:underline">Write</Link>}
                 />
               ))}
             </div>
@@ -282,15 +285,15 @@ function TreasurerDash() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat icon={<Landmark className="h-5 w-5" />} label="Total funds" value={peso(funds)} accent="#10b981" chip="rgba(16,185,129,0.14)" />
         <Stat icon={<TrendingDown className="h-5 w-5" />} label="Total spent" value={peso(spent)} accent="#ef4444" chip="rgba(239,68,68,0.12)" />
-        <Stat icon={<Wallet className="h-5 w-5" />} label="Balance" value={peso(balance)} accent="#6366f1" chip="rgba(99,102,241,0.14)" />
+        <Stat icon={<Wallet className="h-5 w-5" />} label="Balance" value={peso(balance)} accent="rgb(var(--primary))" chip="rgb(var(--primary) / 0.12)" />
         <Stat icon={<Clock className="h-5 w-5" />} label="Awaiting approval" value={num(pending.count)} note={peso(pending.total)} accent="#f59e0b" chip="rgba(245,158,11,0.14)" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-3">
           <p className="text-sm font-bold text-fg">Quick actions</p>
-          <QuickAction to="/sk/finance" icon={<Wallet className="h-4 w-4" />} label="Record an expense" />
-          <QuickAction to="/sk/finance" icon={<FileText className="h-4 w-4" />} label="Scan a receipt" />
+          <QuickAction to="/sk/finance?record=expense" icon={<Wallet className="h-4 w-4" />} label="Record an expense" />
+          <QuickAction to="/sk/finance?tab=expenses" icon={<FileText className="h-4 w-4" />} label="Review expenses" />
           <QuickAction to="/sk/reports/abyip" icon={<FileText className="h-4 w-4" />} label="Generate ABYIP report" />
           <QuickAction to="/sk/rewards" icon={<Award className="h-4 w-4" />} label="Manage rewards & points" />
         </div>
@@ -334,8 +337,8 @@ function TreasurerDash() {
 
 /* ─────────────── KAGAWAD ─────────────── */
 function KagawadDash({ now }) {
-  const progQ = useQuery({ queryKey: ['programs'], queryFn: () => safeGet('/programs') });
-  const meetingsQ = useQuery({ queryKey: ['meetings'], queryFn: () => safeGet('/meetings') });
+  const progQ = useQuery({ queryKey: ['programs'], queryFn: () => safeList('/programs') });
+  const meetingsQ = useQuery({ queryKey: ['meetings'], queryFn: () => safeList('/meetings') });
 
   const programs = useMemo(() => asArray(progQ.data), [progQ.data]);
   const meetings = useMemo(() => asArray(meetingsQ.data), [meetingsQ.data]);
@@ -352,8 +355,8 @@ function KagawadDash({ now }) {
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat icon={<ClipboardList className="h-5 w-5" />} label="Active programs" value={num(active.length)} note="In progress" accent="#8b5cf6" chip="rgba(139,92,246,0.14)" />
-        <Stat icon={<FolderPlus className="h-5 w-5" />} label="Total programs" value={num(programs.length)} note="On record" accent="#6366f1" chip="rgba(99,102,241,0.14)" />
+        <Stat icon={<ClipboardList className="h-5 w-5" />} label="Active programs" value={num(active.length)} note="In progress" accent="rgb(var(--info))" chip="rgb(var(--info) / 0.12)" />
+        <Stat icon={<FolderPlus className="h-5 w-5" />} label="Total programs" value={num(programs.length)} note="On record" accent="rgb(var(--primary))" chip="rgb(var(--primary) / 0.12)" />
         <Stat icon={<CalendarDays className="h-5 w-5" />} label="Upcoming sessions" value={num(upcoming.length)} note="To record attendance" accent="#3b82f6" chip="rgba(59,130,246,0.14)" />
         <Stat icon={<Clock className="h-5 w-5" />} label="Meetings logged" value={num(meetings.length)} note="Total on file" accent="#0ea5e9" chip="rgba(14,165,233,0.14)" />
       </div>
@@ -361,7 +364,7 @@ function KagawadDash({ now }) {
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-3">
           <p className="text-sm font-bold text-fg">Quick actions</p>
-          <QuickAction to="/sk/meetings" icon={<UserCheck className="h-4 w-4" />} label="Record attendance" />
+          <QuickAction to="/sk/programs" icon={<UserCheck className="h-4 w-4" />} label="Record attendance" />
           <QuickAction to="/sk/programs" icon={<FolderPlus className="h-4 w-4" />} label="Manage programs & projects" />
           <QuickAction to="/sk/members" icon={<Users className="h-4 w-4" />} label="View KK members" />
         </div>

@@ -46,7 +46,7 @@ beforeEach(() => {
 describe('getMyPoints', () => {
 
   test('returns 0 balance when no records', async () => {
-    Points.aggregate = jest.fn()
+    Points.aggregate = jest.fn().mockResolvedValue([]) // default: no held points
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
     User.findByIdAndUpdate = jest.fn().mockResolvedValue({})
@@ -57,7 +57,7 @@ describe('getMyPoints', () => {
   })
 
   test('sums earned points correctly', async () => {
-    Points.aggregate = jest.fn()
+    Points.aggregate = jest.fn().mockResolvedValue([]) // default: no held points
       .mockResolvedValueOnce([{ total:30 }])
       .mockResolvedValueOnce([])
     User.findByIdAndUpdate = jest.fn().mockResolvedValue({})
@@ -67,8 +67,20 @@ describe('getMyPoints', () => {
     expect(res._json.balance).toBe(30)
   })
 
+  test('reports held points separately — they are not part of the balance', async () => {
+    Points.aggregate = jest.fn().mockResolvedValue([]) // default: no held points
+      .mockResolvedValueOnce([{ total:20 }])  // earned + awarded
+      .mockResolvedValueOnce([])              // redeemed
+      .mockResolvedValueOnce([{ total:15 }])  // held (unverified check-ins)
+    User.findByIdAndUpdate = jest.fn().mockResolvedValue({})
+    const res = makeRes()
+    await getMyPoints(makeReq({}, fakeKab()), res)
+    expect(res._json.balance).toBe(20)
+    expect(res._json.held).toBe(15)
+  })
+
   test('subtracts redeemed points from balance', async () => {
-    Points.aggregate = jest.fn()
+    Points.aggregate = jest.fn().mockResolvedValue([]) // default: no held points
       .mockResolvedValueOnce([{ total:50 }])
       .mockResolvedValueOnce([{ total:10 }])
     User.findByIdAndUpdate = jest.fn().mockResolvedValue({})
@@ -79,7 +91,7 @@ describe('getMyPoints', () => {
   })
 
   test('syncs User.points with the computed balance', async () => {
-    Points.aggregate = jest.fn()
+    Points.aggregate = jest.fn().mockResolvedValue([]) // default: no held points
       .mockResolvedValueOnce([{ total:25 }])
       .mockResolvedValueOnce([])
     User.findByIdAndUpdate = jest.fn().mockResolvedValue({})
@@ -148,8 +160,7 @@ describe('getLeaderboard', () => {
     expect(res._json.leaderboard[2].points).toBe(30)
   })
 
-  test('queries kabataan_user with isActive:true', async () => {
-    // Real controller uses { role:'kabataan_user', isActive:true }
+  test('ranks only active, verified kabataan with at least 5 points', async () => {
     User.find = jest.fn().mockReturnValue({
       select: jest.fn().mockReturnThis(),
       sort:   jest.fn().mockReturnThis(),
@@ -158,7 +169,7 @@ describe('getLeaderboard', () => {
     const req = makeReq()
     const res = makeRes()
     await getLeaderboard(req, res)
-    expect(User.find).toHaveBeenCalledWith({ role:'kabataan_user', isActive:true })
+    expect(User.find).toHaveBeenCalledWith({ role:'kabataan', isActive:true, idVerified:true, points:{ $gte:5 } })
   })
 })
 
@@ -181,9 +192,27 @@ describe('awardPoints', () => {
     expect(res.status).toHaveBeenCalledWith(400)
   })
 
+  test('rejects negative points (an award can never take points away)', async () => {
+    User.findById = jest.fn()
+    const res = makeRes()
+    await awardPoints(makeReq({ userId:'kabid001', points:-100, reason:'x' }, fakeSK()), res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(User.findById).not.toHaveBeenCalled()
+  })
+
+  test('does not award points to an SK officer', async () => {
+    User.findById = jest.fn().mockResolvedValue({ _id:'sk2', role:'sk_secretary', isActive:true })
+    Points.create = jest.fn()
+    const res = makeRes()
+    await awardPoints(makeReq({ userId:'sk2', points:10, reason:'x' }, fakeSK()), res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(Points.create).not.toHaveBeenCalled()
+  })
+
   test('awards points and creates record', async () => {
     // Real controller: does NOT check 0/negative — just checks !points (falsy)
     // So points=25 → valid
+    User.findById = jest.fn().mockResolvedValue({ ...fakeKab(), role:'kabataan', isActive:true, idVerified:true })
     User.findByIdAndUpdate = jest.fn().mockResolvedValue({})
     Points.create = jest.fn().mockResolvedValue({ _id:'pts001' })
     const req = makeReq({ userId:'kabid001', points:25, reason:'Outstanding' }, fakeSK())

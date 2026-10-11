@@ -40,7 +40,7 @@ const fakeSK = () => ({
 })
 
 const fakeKab = (id = 'kabid001') => ({
-  _id:id, role:'kabataan_user', firstName:'Kab', lastName:'User',
+  _id:id, role:'kabataan', firstName:'Kab', lastName:'User', isActive:true, idVerified:true,
 })
 
 const fakeMeeting = (overrides = {}) => ({
@@ -291,6 +291,8 @@ describe('checkIn', () => {
     const kab = fakeKab()
     const meeting = fakeMeeting({ qrActive:true, pointsReward:10, checkedIn:[] })
     Meeting.findOne = jest.fn().mockResolvedValue(meeting)
+    // Check-in is claimed with one atomic update (no double awards on retries)
+    Meeting.findOneAndUpdate = jest.fn().mockResolvedValue(meeting)
     Points.create   = jest.fn().mockResolvedValue({ _id:'pts001' })
     User.findByIdAndUpdate = jest.fn().mockResolvedValue({})
 
@@ -305,6 +307,6 @@ describe('checkIn', () => {
       { $inc: { points: 10 } }
     )
     expect(res._json.pointsAwarded).toBe(10)
-    expect(res._json.message).toMatch(/successful/i)
+    expect(res._json.message).toMatch(/checked in/i)
   })
 })

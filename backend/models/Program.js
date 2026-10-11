@@ -10,6 +10,8 @@ const programSchema = new mongoose.Schema({
   description:  { type:String, trim:true },
   category:     { type:String, enum:['Youth Development','Health','Livelihood','Education','Environment','Sports','Peace and Order','Other'], default:'Other' },
   status:       { type:String, enum:['planned','ongoing','completed','cancelled'], default:'planned' },
+  // Published to kabataan (Programs page, landing page). Off = officers only.
+  showToKabataan: { type:Boolean, default:true },
   startDate:    { type:Date },
   endDate:      { type:Date },
   municipality: { type:String },
@@ -60,6 +62,27 @@ const programSchema = new mongoose.Schema({
     uploadedAt: { type:Date, default:Date.now },
   }],
   notes: { type:String },
+
+  // Who the PPA is for, e.g. "Out-of-school youth aged 15–24", and how many
+  targetBeneficiaries: { type:String, default:'', trim:true },
+  beneficiaryCount:    { type:Number, default:null, min:0 },
+
+  // Dated progress log, newest last. Kabataan see these on the Programs page.
+  progressUpdates: [{
+    note:     { type:String, required:true, trim:true },
+    progress: { type:Number, min:0, max:100, default:null }, // optional % complete
+    status:   { type:String, default:'' },                   // status set with this update, if any
+    postedBy: { type:mongoose.Schema.Types.ObjectId, ref:'User' },
+    postedAt: { type:Date, default:Date.now },
+  }],
+
+  // Supporting files (proposal, resolution, attendance sheet…). Officers only.
+  documents: [{
+    name:       { type:String, required:true, trim:true },
+    url:        { type:String, required:true },
+    uploadedBy: { type:mongoose.Schema.Types.ObjectId, ref:'User' },
+    uploadedAt: { type:Date, default:Date.now },
+  }],
 }, { timestamps:true })
 
 // Virtual: remaining budget

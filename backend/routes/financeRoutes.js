@@ -6,7 +6,7 @@ const authorize   = require('../middleware/authorize')
 const {
   getFunds, recordFund, editFund, voidFund,
   getExpenses, recordExpense, approveExpense, rejectExpense, voidExpense,
-  getSummary, getLedger,
+  getSummary, getLedger, setPublishedBudget,
 } = require('../controllers/financeController')
 const {
   getAbyipPrefill, getCbydpPrefill, getAccomplishmentPrefill,
@@ -36,6 +36,7 @@ router.put('/expenses/:id/void',     protect, authorize(...CHAIRPERSON), voidExp
 // Summary stays open to kabataan, but getSummary returns a stripped "utilized only" view for them
 router.get('/summary', protect, authorize(...TRANSPARENCY), getSummary)
 router.get('/ledger',  protect, authorize(...VIEW_ALL), getLedger)
+router.put('/published-budget', protect, authorize(...CHAIRPERSON), setPublishedBudget) // what kabataan see
 
 // ── Reports (ABYIP / CBYDP / Accomplishment)
 router.get('/reports/abyip/prefill',          protect, authorize(...VIEW_ALL),   getAbyipPrefill)          // must precede /reports/:id

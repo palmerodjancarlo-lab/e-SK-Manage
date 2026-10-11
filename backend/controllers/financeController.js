@@ -3,11 +3,21 @@
 // Fund receipts + Expenses with full audit trail
 
 const Fund = require('../models/Fund')
+const serverError = require('../utils/serverError')
 const Expense = require('../models/Expense')
 const Activity = require('../models/Activity')
 const Project = require('../models/Project')
 const Program = require('../models/Program')
 const AuditLog = require('../models/AuditLog')
+const Setting = require('../models/Setting')
+const pick = require('../utils/pick')
+const FUND_EDITABLE = ['source', 'sourceType', 'amount', 'referenceNumber', 'receiptPhoto', 'dateReceived', 'program', 'purpose', 'notes']
+
+// The single settings row holds the budget figure published to kabataan.
+const getSettings = async () => (await Setting.findOne({ key: 'site' })) || Setting.create({ key: 'site' })
+const publishedView = (p) => (p && p.amount != null
+  ? { amount: p.amount, label: p.label || '', updatedAt: p.updatedAt }
+  : null)
 
 // ── BALANCE HELPER ────────────────────────────────────────────────────────────
 const getBalance = async () => {
@@ -45,7 +55,7 @@ const getFunds = async (req, res) => {
     const balance = await getBalance()
     res.json({ funds, ...balance })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -83,7 +93,7 @@ const recordFund = async (req, res) => {
     const balance = await getBalance()
     res.status(201).json({ message: 'Fund recorded successfully.', fund, ...balance })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -106,15 +116,22 @@ const editFund = async (req, res) => {
       notes: fund.notes,
     }
 
+    const updates = pick(req.body, FUND_EDITABLE)
+    if (updates.amount !== undefined) updates.amount = Number(updates.amount)
+
     // Build change description
     const changes = []
-    if (req.body.amount && req.body.amount !== fund.amount)
-      changes.push(`Amount: ₱${fund.amount} → ₱${req.body.amount}`)
-    if (req.body.source && req.body.source !== fund.source)
-      changes.push(`Source: "${fund.source}" → "${req.body.source}"`)
+    if (updates.amount !== undefined && updates.amount !== fund.amount)
+      changes.push(`Amount: ₱${fund.amount} → ₱${updates.amount}`)
+    if (updates.source !== undefined && updates.source !== fund.source)
+      changes.push(`Source: "${fund.source}" → "${updates.source}"`)
+    for (const f of ['referenceNumber', 'purpose', 'sourceType']) {
+      if (updates[f] !== undefined && String(updates[f]) !== String(fund[f] ?? '')) changes.push(`${f} changed`)
+    }
+    if (updates.receiptPhoto !== undefined && updates.receiptPhoto !== fund.receiptPhoto) changes.push('Proof replaced')
 
-    // Apply updates
-    Object.assign(fund, req.body)
+    // Apply updates (never voiding, recorder or edit history)
+    Object.assign(fund, updates)
 
     // Log the edit
     fund.editHistory.push({
@@ -136,7 +153,7 @@ const editFund = async (req, res) => {
 
     res.json({ message: 'Fund record updated.', fund })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -167,7 +184,7 @@ const voidFund = async (req, res) => {
 
     res.json({ message: 'Fund record voided.', fund })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -196,7 +213,7 @@ const getExpenses = async (req, res) => {
     const balance = await getBalance()
     res.json({ expenses, ...balance })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -263,7 +280,7 @@ const recordExpense = async (req, res) => {
 
     res.status(201).json({ message: 'Expense recorded. Waiting for Chairperson approval.', expense })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -300,7 +317,7 @@ const approveExpense = async (req, res) => {
 
     res.json({ message: 'Expense approved.', expense })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -331,7 +348,7 @@ const rejectExpense = async (req, res) => {
 
     res.json({ message: 'Expense rejected.', expense })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -363,7 +380,7 @@ const voidExpense = async (req, res) => {
 
     res.json({ message: 'Expense voided.', expense })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -390,24 +407,66 @@ const getSummary = async (req, res) => {
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ])
 
-    // Kabataan see ONLY utilized funds (what was spent) — never total funds or balance,
-    // per the SK Chairperson's directive to avoid issues over the full budget figure.
+    const settings = await getSettings()
+    const published = publishedView(settings.publishedBudget)
+
+    // Kabataan never see the recorded total funds or balance (SK Chairperson's directive).
+    // They see what was spent, plus the budget figure the Chairperson chose to publish.
     if (req.user?.role === 'kabataan') {
       return res.json({
         kabataanView: true,
         totalUtilized: balance.totalExpenses,
         expensesByCategory,
+        published: published && { ...published, remaining: Math.max(0, published.amount - balance.totalExpenses) },
       })
     }
 
     res.json({
       ...balance,
+      published,
       pendingExpenses: { count: pendingCount, total: pendingTotal[0]?.total || 0 },
       fundsBySource,
       expensesByCategory,
     })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
+  }
+}
+
+// PUT /api/finance/published-budget  (Chairperson)
+// Body: { amount: number|null, label?: string } — null stops publishing a budget figure.
+const setPublishedBudget = async (req, res) => {
+  try {
+    const raw = req.body.amount
+    const amount = raw === null || raw === '' || raw === undefined ? null : Number(raw)
+    const label = typeof req.body.label === 'string' ? req.body.label.trim().slice(0, 80) : ''
+    if (amount !== null && (!Number.isFinite(amount) || amount < 0)) {
+      return res.status(400).json({ message: 'Enter a valid amount.' })
+    }
+
+    const { totalFunds, totalExpenses } = await getBalance()
+    // The published budget can't be lower than what has already been spent.
+    if (amount !== null && amount < totalExpenses) {
+      return res.status(400).json({ message: `The published budget can't be lower than what has already been spent (₱${totalExpenses.toLocaleString('en-PH')}).` })
+    }
+
+    const s = await getSettings()
+    const before = s.publishedBudget?.amount ?? null
+    s.publishedBudget = { amount, label: amount === null ? '' : label, updatedAt: new Date(), updatedBy: req.user._id }
+    await s.save()
+
+    const money = (n) => (n === null ? 'not published' : `₱${Number(n).toLocaleString('en-PH')}`)
+    await AuditLog.create({
+      user: req.user._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      action: 'PUBLISH_BUDGET',
+      details: `${req.user.firstName} ${req.user.lastName} changed the budget shown to kabataan: ${money(before)} → ${money(amount)}${label && amount !== null ? ` ("${label}")` : ''}. Recorded funds at the time: ₱${totalFunds.toLocaleString('en-PH')}.`,
+    })
+
+    res.json({ message: amount === null ? 'Kabataan no longer see a budget figure.' : 'Published budget updated.', published: publishedView(s.publishedBudget) })
+  } catch (error) {
+    serverError(res, error)
   }
 }
 
@@ -444,7 +503,7 @@ const getLedger = async (req, res) => {
 
     res.json({ ledger: ledgerWithBalance })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -454,5 +513,5 @@ module.exports = {
   // Expenses
   getExpenses, recordExpense, approveExpense, rejectExpense, voidExpense,
   // Reports
-  getSummary, getLedger,
+  getSummary, getLedger, setPublishedBudget,
 }

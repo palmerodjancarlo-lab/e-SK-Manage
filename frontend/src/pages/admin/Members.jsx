@@ -1,22 +1,34 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   Search, ShieldCheck, ShieldOff, Power, KeyRound, Trash2,
-  ExternalLink, UserCheck, Users as UsersIcon,
+  Eye, EyeOff, UserCheck, Users as UsersIcon,
 } from 'lucide-react';
 import api from '../../lib/api';
 import {
-  PageHeader, Card, CardContent, Spinner, Badge, Button, Input, Modal,
-  Table, THead, TBody, TR, TH, TD, EmptyState,
+  PageHeader, Spinner, Badge, Button, Input, Select, Modal,
+  Table, THead, TBody, TR, TH, TD, SortableTH, TablePagination, EmptyState,
 } from '../../components/ui';
-import { roleLabel, HEAD_ROLES } from '../../lib/roles';
+import useTableData from '../../lib/useTableData';
+import { roleLabel, HEAD_ROLES, ROLES } from '../../lib/roles';
+import { hasSubmittedId } from '../../lib/residency';
+import IdDocumentViewer from '../../components/account/IdDocumentViewer';
 
 const TABS = [
-  { key: 'all', label: 'All' },
-  { key: 'kabataan', label: 'Kabataan' },
-  { key: 'sk', label: 'SK Officials' },
+  { key: 'all', label: 'All', test: () => true },
+  { key: 'kabataan', label: 'Kabataan', test: (u) => u.role === 'kabataan' },
+  { key: 'sk', label: 'SK Officials', test: (u) => u.role !== 'kabataan' },
+  { key: 'pending', label: 'Awaiting verification', test: (u) => u.role === 'kabataan' && !u.idVerified },
 ];
+
+// Defined once (not per render) so sorting is only recomputed when data changes
+const ACCESSORS = {
+  name: (u) => `${u.lastName} ${u.firstName}`,
+  role: (u) => roleLabel(u.role),
+  joined: (u) => new Date(u.createdAt),
+};
 
 function ageOf(u) {
   if (typeof u.age === 'number') return u.age;
@@ -26,9 +38,13 @@ function ageOf(u) {
 
 export default function Members() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState('all');
+  // ?tab=pending opens straight to the review queue (dashboard links here)
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(() => (TABS.some((t) => t.key === params.get('tab')) ? params.get('tab') : 'all'));
   const [q, setQ] = useState('');
+  const [role, setRole] = useState('');
   const [selected, setSelected] = useState(null);
+  const [showId, setShowId] = useState(false);
   const [newPass, setNewPass] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -69,105 +85,131 @@ export default function Members() {
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
+    const inTab = TABS.find((t) => t.key === tab).test;
     return users.filter((u) => {
-      if (tab === 'kabataan' && u.role !== 'kabataan') return false;
-      if (tab === 'sk' && u.role === 'kabataan') return false;
+      if (!inTab(u)) return false;
+      if (role && u.role !== role) return false;
       if (!term) return true;
       return (
         `${u.firstName} ${u.lastName}`.toLowerCase().includes(term) ||
         (u.email || '').toLowerCase().includes(term)
       );
     });
-  }, [users, tab, q]);
+  }, [users, tab, q, role]);
 
-  const pendingCount = users.filter((u) => u.role === 'kabataan' && !u.idVerified).length;
+  const table = useTableData(filtered, { accessors: ACCESSORS, initialSort: { key: 'name', dir: 'asc' }, pageSize: 15 });
+  const pendingCount = users.filter(TABS[3].test).length;
+  const openManage = (u) => { setSelected(u); setNewPass(''); setConfirmDelete(false); setShowId(false); };
 
   return (
     <>
       <PageHeader
-        title="Members"
+        title="Member Registry"
         description="Residents and officials of Barangay Tawiran. Verify residency before granting full access."
       />
 
-      {/* Controls */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-1 rounded-xl bg-surface2 p-1">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
-                tab === t.key ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="sm:w-72">
-          <Input placeholder="Search name or email…" value={q} onChange={(e) => setQ(e.target.value)}
-            leftIcon={<Search className="h-4 w-4" />} />
-        </div>
-      </div>
-
-      {pendingCount > 0 && (
-        <div className="mb-4 flex items-center gap-3 rounded-2xl border border-warning/30 bg-warning/10 px-5 py-3">
-          <UserCheck className="h-5 w-5 text-warning" />
-          <p className="text-sm font-medium text-fg">{pendingCount} kabataan awaiting residency verification.</p>
+      {pendingCount > 0 && tab !== 'pending' && (
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex items-center gap-3 text-sm font-medium text-fg">
+            <UserCheck aria-hidden="true" className="h-5 w-5 shrink-0 text-warning" />
+            {pendingCount} kabataan {pendingCount === 1 ? 'is' : 'are'} waiting for residency verification.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => setTab('pending')}>Review now</Button>
         </div>
       )}
 
-      <Card>
-        <CardContent className="p-0 sm:p-0">
-          {isLoading ? (
-            <div className="flex justify-center py-16"><Spinner className="h-7 w-7 text-primary" /></div>
-          ) : filtered.length === 0 ? (
-            <div className="p-6">
-              <EmptyState icon={UsersIcon} title="No members found" description="Try a different search or filter." />
-            </div>
-          ) : (
-            <Table>
-              <THead>
-                <TR>
-                  <TH>Name</TH>
-                  <TH>Role</TH>
-                  <TH>Status</TH>
-                  <TH className="text-right">Manage</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {filtered.map((u) => (
-                  <TR key={u._id}>
-                    <TD>
-                      <div className="font-semibold text-fg">{u.firstName} {u.lastName}</div>
-                      <div className="text-xs text-subtle">{u.email}</div>
-                    </TD>
-                    <TD>
-                      <Badge variant={HEAD_ROLES.includes(u.role) ? 'primary' : u.role === 'kabataan' ? 'info' : 'accent'}>
-                        {roleLabel(u.role)}
+      {/* Controls */}
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap gap-1 rounded-xl bg-surface2 p-1" role="group" aria-label="Filter members">
+          {TABS.map((t) => {
+            const count = users.filter(t.test).length;
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setTab(t.key)}
+                className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition-colors ${
+                  active ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg'
+                }`}
+              >
+                {t.label}
+                <span className="rounded bg-surface2 px-1.5 text-xs tabular-nums text-muted">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row lg:w-[30rem]">
+          <div className="sm:w-48 sm:shrink-0">
+            <Select aria-label="Filter by role" value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="">All roles</option>
+              {[ROLES.CHAIR, ROLES.SECRETARY, ROLES.TREASURER, ROLES.KAGAWAD, ROLES.KABATAAN].map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+            </Select>
+          </div>
+          <Input aria-label="Search members by name or email" placeholder="Search name or email…" value={q}
+            onChange={(e) => setQ(e.target.value)} leftIcon={<Search className="h-4 w-4" />} type="search" />
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center rounded-xl border border-border bg-surface py-16" role="status">
+          <Spinner className="h-7 w-7 text-primary" /><span className="sr-only">Loading members…</span>
+        </div>
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={UsersIcon}
+          title={q ? 'No members match your search' : tab === 'pending' ? 'Everyone is verified' : 'No members yet'}
+          description={q ? 'Check the spelling or search by email instead.' : tab === 'pending' ? 'There are no residency documents waiting for review.' : 'Kabataan appear here after they register.'}
+          action={(q || role || tab !== 'all') && <Button variant="outline" onClick={() => { setQ(''); setRole(''); setTab('all'); }}>Show all members</Button>}
+        />
+      ) : (
+        <Table
+          label="Members"
+          stack
+          footer={<TablePagination page={table.page} pageCount={table.pageCount} total={table.total} pageSize={table.pageSize} onPage={table.setPage} noun="members" />}
+        >
+          <THead>
+            <TR>
+              <SortableTH sortKey="name" sort={table.sort} onSort={table.toggleSort}>Name</SortableTH>
+              <SortableTH sortKey="role" sort={table.sort} onSort={table.toggleSort}>Role</SortableTH>
+              <TH>Status</TH>
+              <TH className="text-right"><span className="sr-only">Actions</span></TH>
+            </TR>
+          </THead>
+          <TBody>
+            {table.pageRows.map((u) => (
+              <TR key={u._id}>
+                <TD label="Name">
+                  <div className="font-semibold text-fg">{u.firstName} {u.lastName}</div>
+                  <div className="break-all text-xs text-subtle">{u.email}</div>
+                </TD>
+                <TD label="Role">
+                  <Badge variant={HEAD_ROLES.includes(u.role) ? 'primary' : u.role === 'kabataan' ? 'info' : 'accent'}>
+                    {roleLabel(u.role)}
+                  </Badge>
+                </TD>
+                <TD label="Status">
+                  <div className="flex flex-wrap justify-end gap-1.5 sm:justify-start">
+                    <Badge variant={u.isActive ? 'success' : 'default'}>{u.isActive ? 'Active' : 'Inactive'}</Badge>
+                    {u.role === 'kabataan' && (
+                      <Badge variant={u.idVerified ? 'success' : 'warning'}>
+                        {u.idVerified ? 'Verified' : hasSubmittedId(u) ? 'ID submitted' : 'No ID yet'}
                       </Badge>
-                    </TD>
-                    <TD>
-                      <div className="flex flex-wrap gap-1.5">
-                        <Badge variant={u.isActive ? 'success' : 'default'}>{u.isActive ? 'Active' : 'Inactive'}</Badge>
-                        {u.role === 'kabataan' && (
-                          <Badge variant={u.idVerified ? 'success' : 'warning'}>{u.idVerified ? 'Verified' : 'Pending'}</Badge>
-                        )}
-                        {u.isPWD && <Badge variant="info">PWD</Badge>}
-                      </div>
-                    </TD>
-                    <TD className="text-right">
-                      <Button size="sm" variant="outline" onClick={() => { setSelected(u); setNewPass(''); setConfirmDelete(false); }}>
-                        Manage
-                      </Button>
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                    )}
+                    {u.isPWD && <Badge variant="info">PWD</Badge>}
+                  </div>
+                </TD>
+                <TD className="text-right">
+                  <Button size="sm" variant="outline" onClick={() => openManage(u)} aria-label={`Manage ${u.firstName} ${u.lastName}`}>
+                    Manage
+                  </Button>
+                </TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      )}
 
       {/* Manage modal */}
       <Modal
@@ -200,15 +242,26 @@ export default function Members() {
                       {selected.idVerified ? 'This resident is verified.' : 'Review their ID/residency proof, then verify.'}
                     </p>
                   </div>
-                  {selected.idPhoto ? (
-                    <a href={selected.idPhoto} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
-                      View ID <ExternalLink className="h-4 w-4" />
-                    </a>
+                  {hasSubmittedId(selected) ? (
+                    <Button variant="outline" size="sm" onClick={() => setShowId((v) => !v)} aria-expanded={showId}>
+                      {showId ? <><EyeOff className="h-4 w-4" /> Hide document</> : <><Eye className="h-4 w-4" /> View document</>}
+                    </Button>
                   ) : (
                     <Badge variant="default">No ID uploaded</Badge>
                   )}
                 </div>
+                {hasSubmittedId(selected) && (
+                  <p className="mt-2 text-xs text-muted">
+                    {selected.idType || 'Document type not specified'}
+                    {selected.idSubmittedAt && ` · submitted ${new Date(selected.idSubmittedAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                  </p>
+                )}
+                {showId && (
+                  <div className="mt-3">
+                    <IdDocumentViewer key={selected._id} endpoint={`/admin/users/${selected._id}/id-document`} />
+                    <p className="mt-1.5 text-xs text-subtle">Personal data — each view is recorded in the audit log.</p>
+                  </div>
+                )}
                 <div className="mt-3">
                   {selected.idVerified ? (
                     <Button variant="ghost" loading={verifyM.isPending}

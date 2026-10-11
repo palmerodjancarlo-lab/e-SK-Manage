@@ -72,6 +72,7 @@ function MemberRow({ member, onClick }) {
   const name = fullName(member);
   return (
     <button
+      type="button"
       onClick={onClick}
       className="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-surface2"
     >
@@ -86,7 +87,7 @@ function MemberRow({ member, onClick }) {
       </div>
 
       <div className="hidden items-center gap-6 sm:flex">
-        <span className="w-24 text-right text-sm font-medium text-primary">
+        <span className="w-32 whitespace-nowrap text-right text-sm font-medium text-primary">
           {roleLabel(member.role)}
         </span>
         <span className={cn('w-16 text-sm font-medium', active ? 'text-success' : 'text-subtle')}>
@@ -252,56 +253,55 @@ export default function Members() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Members"
-        subtitle="Kabataan and SK officials of Barangay Tawiran"
+        title="Member Registry"
+        description="Kabataan and SK officials of Barangay Tawiran. Select a member to see their profile."
       />
 
       {/* search + count */}
       <div className="flex items-center justify-between gap-4">
-        <div className="relative w-full max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" />
+        <div className="w-full max-w-md">
           <Input
+            type="search"
+            aria-label="Search members"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search name or email…"
-            className="pl-9"
+            leftIcon={<Search className="h-4 w-4" />}
           />
         </div>
-        <span className="shrink-0 text-sm text-muted">{filtered.length} members</span>
+        <span className="shrink-0 text-sm tabular-nums text-muted" aria-live="polite">
+          {filtered.length} {filtered.length === 1 ? 'member' : 'members'}
+        </span>
       </div>
 
       {/* role tabs */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1 rounded-xl bg-surface2 p-1" role="group" aria-label="Filter by role">
         {TABS.map((t) => (
           <button
             key={t.key}
+            type="button"
+            aria-pressed={tab === t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition',
-              tab === t.key
-                ? 'bg-primary text-primary-fg shadow-sm'
-                : 'bg-surface2 text-muted hover:text-fg',
+              'inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition-colors',
+              tab === t.key ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg',
             )}
           >
             {t.label}
-            <span className={cn('text-xs', tab === t.key ? 'text-primary-fg/80' : 'text-subtle')}>
-              {counts[t.key] ?? 0}
-            </span>
+            <span className="rounded bg-surface2 px-1.5 text-xs tabular-nums text-muted">{counts[t.key] ?? 0}</span>
           </button>
         ))}
       </div>
 
       {/* list */}
       {membersQ.isLoading ? (
-        <div className="flex justify-center py-16"><Spinner /></div>
+        <div className="flex justify-center py-16" role="status"><Spinner className="h-7 w-7 text-primary" /><span className="sr-only">Loading…</span></div>
       ) : filtered.length === 0 ? (
-        <Card className="p-8">
-          <EmptyState
-            icon={<Users className="h-6 w-6" />}
-            title="No members found"
-            description="Try a different filter or search term."
-          />
-        </Card>
+        <EmptyState
+          icon={Users}
+          title="No members found"
+          description="Try a different filter or search term."
+        />
       ) : (
         <Card className="overflow-hidden p-0">
           <div className="divide-y divide-border">
@@ -315,4 +315,4 @@ export default function Members() {
       <MemberDetail member={selected} now={now} onClose={() => setSelected(null)} />
     </div>
   );
-}
+}

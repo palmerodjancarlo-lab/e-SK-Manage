@@ -23,6 +23,7 @@ const Input = forwardRef(function Input(
         <input
           ref={ref}
           id={inputId}
+          aria-invalid={error ? true : undefined}
           className={cn(
             'input',
             leftIcon && 'pl-10',

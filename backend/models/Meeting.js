@@ -51,6 +51,8 @@ const MeetingSchema = new mongoose.Schema({
   checkedIn: [{
     user:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     checkedInAt: { type: Date, default: Date.now },
+    method:      { type: String, enum: ['qr', 'manual'], default: 'qr' }, // manual = marked present by an officer
+    markedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   }],
 
   // Manual attendance tracking by SK Officer
@@ -67,6 +69,14 @@ const MeetingSchema = new mongoose.Schema({
 
   // Open forum — kabataan users comment after event
   comments: [CommentSchema],
+
+  // Minutes of the meeting, written by the SK Secretary (or Chairperson). Officers only.
+  minutes: {
+    text:       { type: String, default: '', maxlength: 20000 },
+    attendees:  { type: String, default: '', maxlength: 2000 },   // who was present (free text)
+    recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    recordedAt: { type: Date, default: null },
+  },
 
   // ── Volunteer sign-up ──
   // SK officer flags an event as needing volunteers; kabataan can sign up.

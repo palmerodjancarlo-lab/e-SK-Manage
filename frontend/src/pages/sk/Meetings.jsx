@@ -1,21 +1,29 @@
 // src/pages/sk/Meetings.jsx — SK meetings & events management
 // cspell:words kabataan kagawad Tawiran saloobin checkins barangay
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { QRCodeCanvas } from 'qrcode.react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
-  Plus, Pencil, Trash2, QrCode, Users, MessageSquare, CalendarDays, MapPin, Star, Power, X, HandHeart,
+  Plus, Pencil, Trash2, QrCode, Users, MessageSquare, CalendarDays, MapPin, Star, Power, X, HandHeart, Clock, FileText,
 } from 'lucide-react';
+import MinutesModal from '../../components/events/MinutesModal';
+import AttendancePanel from '../../components/events/AttendancePanel';
+import { useAuth } from '../../context/auth-store';
+import { ROLES } from '../../lib/roles';
 import api from '../../lib/api';
 import {
-  PageHeader, Card, CardContent, Spinner, Badge, Button, Input, Textarea, Select, Modal, EmptyState, Avatar,
+  PageHeader, Card, CardContent, Spinner, Badge, Button, Input, Textarea, Select, Modal, EmptyState, Avatar, IconButton,
 } from '../../components/ui';
-import { cn } from '../../lib/utils';
+import { cn, localDateInput } from '../../lib/utils';
+import { eventTypeClass, eventTime, parseTimeText, combineDateTime } from '../../lib/events';
+import DateTile from '../../components/events/DateTile';
+import EventCalendar from '../../components/events/EventCalendar';
 
 const TYPES = ['Meeting', 'Workshop', 'Event', 'Seminar', 'Livelihood', 'Sports'];
 const asArray = (d) => (Array.isArray(d) ? d : d?.meetings || []);
-const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '');
-const qrSrc = (token) => `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(token || '')}`;
+
 
 export default function SKMeetings() {
   const qc = useQueryClient();
@@ -24,16 +32,21 @@ export default function SKMeetings() {
   const [del, setDel] = useState(null);
   const [qr, setQr] = useState(null);
   const [manage, setManage] = useState(null);
+  const { user } = useAuth();
+  const canWriteMinutes = user?.role === ROLES.SECRETARY; // the Chairperson writes them in the Head Console
+  const [params, setParams] = useSearchParams();
+  const [minutesId, setMinutesId] = useState(() => params.get('minutes')); // ?minutes=<id> from the dashboard
 
   const { data, isLoading } = useQuery({ queryKey: ['meetings'], queryFn: async () => (await api.get('/meetings')).data });
-  const nowQ = useQuery({ queryKey: ['now'], queryFn: async () => Date.now() });
-  const now = nowQ.data || 0;
+  const [now] = useState(() => Date.now());
   const refresh = () => qc.invalidateQueries({ queryKey: ['meetings'] });
 
   const meetings = asArray(data).map((m) => ({ ...m, _past: new Date(m.date).getTime() < now }))
     .sort((a, b) => new Date(a.date) - new Date(b.date));
-  const shown = meetings.filter((m) => (filter === 'past' ? m._past : !m._past));
-  const upcomingCount = meetings.filter((m) => !m._past).length;
+  const upcoming = meetings.filter((m) => !m._past);
+  const past = meetings.filter((m) => m._past).reverse();
+  const shown = filter === 'past' ? past : upcoming;
+  const openNew = () => setForm({ mode: 'create', data: {} });
 
   const delM = useMutation({
     mutationFn: (id) => api.delete(`/meetings/${id}`),
@@ -41,65 +54,96 @@ export default function SKMeetings() {
     onError: (e) => toast.error(e.response?.data?.message || 'Failed.'),
   });
 
+  // One event card — used by the list and by the calendar's selected day
+  const renderCard = (m) => {
+    const live = m.qrActive && !m._past;
+    const volCount = (m.volunteers || []).length;
+    return (
+      <Card key={m._id} className="transition-shadow hover:shadow-pop">
+        <CardContent className="flex gap-4">
+          <DateTile date={m.date} past={m._past} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={cn('rounded-md px-2 py-0.5 text-xs font-semibold', eventTypeClass(m.type))}>{m.type}</span>
+                {live && (
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">
+                    <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60 motion-reduce:hidden" /><span className="relative inline-flex h-2 w-2 rounded-full bg-success" /></span>
+                    Check-in open
+                  </span>
+                )}
+                {m._past && <Badge variant="default">Done</Badge>}
+              </div>
+              <div className="-mr-1 -mt-1 flex shrink-0 gap-1">
+                <IconButton icon={Pencil} label={`Edit “${m.title}”`} onClick={() => setForm({ mode: 'edit', data: m })} />
+                <IconButton icon={Trash2} label={`Delete “${m.title}”`} tone="danger" onClick={() => setDel(m)} />
+              </div>
+            </div>
+            <h3 className="mt-1 truncate font-bold text-fg">{m.title}</h3>
+            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+              <span className="inline-flex items-center gap-1.5"><Clock aria-hidden="true" className="h-4 w-4 text-subtle" />{eventTime(m)}</span>
+              {m.venue && <span className="inline-flex min-w-0 items-center gap-1.5"><MapPin aria-hidden="true" className="h-4 w-4 shrink-0 text-subtle" /><span className="truncate">{m.venue}{m.municipality ? `, ${m.municipality}` : ''}</span></span>}
+            </div>
+            {m.description && <p className="mt-1.5 line-clamp-2 text-sm text-muted">{m.description}</p>}
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-subtle">
+              <span className="inline-flex items-center gap-1"><Star aria-hidden="true" className="h-3.5 w-3.5 text-accent" />{m.pointsReward ?? 10} points</span>
+              {(m.checkedIn || []).length > 0 && <span className="inline-flex items-center gap-1"><Users aria-hidden="true" className="h-3.5 w-3.5" />{m.checkedIn.length} checked in</span>}
+              {m.needsVolunteers && <span className="inline-flex items-center gap-1 font-semibold text-accent"><HandHeart aria-hidden="true" className="h-3.5 w-3.5" />{volCount}{m.volunteerSlots ? ` / ${m.volunteerSlots}` : ''} volunteers</span>}
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-1.5 border-t border-border pt-3">
+              <Button size="sm" variant={live ? 'primary' : 'outline'} onClick={() => setQr(m)}><QrCode className="h-4 w-4" /> {live ? 'Show QR' : 'QR check-in'}</Button>
+              <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'checkins' })}><Users className="h-4 w-4" /> Attendance</Button>
+              {m.needsVolunteers && <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'volunteers' })}><HandHeart className="h-4 w-4" /> Volunteers</Button>}
+              <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'comments' })}><MessageSquare className="h-4 w-4" /> Saloobin</Button>
+              {/* minutes are written once the meeting has started */}
+              {(m.minutes?.text || new Date(m.date).getTime() <= now) && (
+                <Button size="sm" variant="outline" onClick={() => setMinutesId(m._id)}><FileText className="h-4 w-4" /> {m.minutes?.text ? 'Minutes' : canWriteMinutes ? 'Write minutes' : 'Minutes'}</Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <>
-      <PageHeader title="Meetings & Events" description="Schedule events, activate QR check-in, and track attendance."
-        actions={<Button onClick={() => setForm({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New event</Button>} />
+      <PageHeader title="Meetings & Events" description="Schedule council meetings and youth activities, run QR check-in, and read the kabataan’s saloobin."
+        actions={<Button onClick={openNew}><Plus className="h-4 w-4" /> New event</Button>} />
 
-      <div className="mb-5 inline-flex rounded-xl border border-border bg-surface p-1">
-        {[{ k: 'upcoming', label: `Upcoming${upcomingCount ? ` · ${upcomingCount}` : ''}` }, { k: 'past', label: 'Past' }].map((t) => (
-          <button key={t.k} onClick={() => setFilter(t.k)}
-            className={cn('rounded-lg px-4 py-1.5 text-sm font-semibold transition', filter === t.k ? 'bg-primary text-primary-fg' : 'text-muted hover:text-fg')}>
-            {t.label}
+      <div className="mb-5 inline-flex flex-wrap gap-1 rounded-xl bg-surface2 p-1" role="group" aria-label="Show">
+        {[{ k: 'upcoming', label: 'Upcoming', n: upcoming.length }, { k: 'past', label: 'Past', n: past.length }, { k: 'calendar', label: 'Calendar' }].map((t) => (
+          <button key={t.k} type="button" aria-pressed={filter === t.k} onClick={() => setFilter(t.k)}
+            className={cn('inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition-colors',
+              filter === t.k ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg')}>
+            {t.k === 'calendar' && <CalendarDays aria-hidden="true" className="h-4 w-4" />}{t.label}{t.n != null && <span className="rounded bg-surface2 px-1.5 text-xs tabular-nums text-muted">{t.n}</span>}
           </button>
         ))}
       </div>
 
-      {isLoading ? <div className="flex justify-center py-16"><Spinner className="h-7 w-7 text-primary" /></div>
-        : shown.length === 0 ? <EmptyState icon={CalendarDays} title={`No ${filter} events`} description="Create an event for the kabataan to join." action={<Button onClick={() => setForm({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New event</Button>} />
-        : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {shown.map((m) => {
-              const live = m.qrActive && !m._past;
-              const volCount = (m.volunteers || []).length;
-              return (
-                <Card key={m._id}>
-                  <CardContent>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="primary">{m.type}</Badge>
-                        <span className="inline-flex items-center gap-1 text-xs font-bold text-accent"><Star className="h-3 w-3" /> +{m.pointsReward ?? 10}</span>
-                        {live && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> QR live</span>}
-                        {m.needsVolunteers && <span className="inline-flex items-center gap-1 text-[11px] font-bold text-accent"><HandHeart className="h-3 w-3" /> {volCount}{m.volunteerSlots ? `/${m.volunteerSlots}` : ''}</span>}
-                      </div>
-                      <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => setForm({ mode: 'edit', data: m })}><Pencil className="h-4 w-4" /></Button>
-                        <Button size="sm" variant="ghost" className="text-danger hover:bg-danger/10" onClick={() => setDel(m)}><Trash2 className="h-4 w-4" /></Button>
-                      </div>
-                    </div>
-                    <h3 className="mt-1.5 font-bold text-fg">{m.title}</h3>
-                    <p className="mt-0.5 flex items-center gap-1 text-sm text-muted"><CalendarDays className="h-3.5 w-3.5" /> {fmtDate(m.date)}{m.time ? ` · ${m.time}` : ''}</p>
-                    {m.venue && <p className="flex items-center gap-1 text-sm text-subtle"><MapPin className="h-3.5 w-3.5" /> {m.venue}{m.municipality ? `, ${m.municipality}` : ''}</p>}
-                    {m.description && <p className="mt-1 line-clamp-2 text-sm text-muted">{m.description}</p>}
-
-                    <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
-                      <Button size="sm" variant={live ? 'primary' : 'outline'} onClick={() => setQr(m)}><QrCode className="h-4 w-4" /> {live ? 'QR active' : 'QR check-in'}</Button>
-                      <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'checkins' })}><Users className="h-4 w-4" /> Attendance</Button>
-                      {m.needsVolunteers && <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'volunteers' })}><HandHeart className="h-4 w-4" /> Volunteers</Button>}
-                      <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'comments' })}><MessageSquare className="h-4 w-4" /> Saloobin</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+      {isLoading ? <div className="flex justify-center py-16" role="status"><Spinner className="h-7 w-7 text-primary" /><span className="sr-only">Loading…</span></div>
+        : filter === 'calendar' ? (
+          <EventCalendar events={meetings} renderEvents={(day) => <div className="grid gap-4 xl:grid-cols-2">{day.map(renderCard)}</div>} />
+        ) : shown.length === 0 ? (
+          <EmptyState icon={CalendarDays} title={filter === 'past' ? 'No past events' : 'Nothing scheduled'}
+            description={filter === 'past' ? 'Finished meetings and events appear here.' : 'Create an event for the kabataan to join.'}
+            action={filter === 'past' ? null : <Button onClick={openNew}><Plus className="h-4 w-4" /> New event</Button>} />
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-2">
+            {shown.map(renderCard)}
           </div>
         )}
 
       {form && <MeetingForm modal={form} onClose={() => setForm(null)} onDone={() => { setForm(null); refresh(); }} />}
       {qr && <QRModal meeting={qr} onClose={() => setQr(null)} onChange={refresh} />}
+      {minutesId && meetings.find((x) => x._id === minutesId) && (
+        <MinutesModal meeting={meetings.find((x) => x._id === minutesId)} canEdit={canWriteMinutes} onSaved={refresh}
+          onClose={() => { setMinutesId(null); if (params.get('minutes')) setParams({}, { replace: true }); }} />
+      )}
       {manage && <ManageModal id={manage.id} initialTab={manage.tab} onClose={() => setManage(null)} />}
 
-      <Modal open={!!del} onClose={() => setDel(null)} title="Delete event"
+      <Modal open={!!del} onClose={() => setDel(null)} title="Delete this event?"
         footer={<><Button variant="ghost" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" loading={delM.isPending} onClick={() => delM.mutate(del._id)}>Delete</Button></>}>
         <p className="text-sm text-muted">Delete “{del?.title}”?</p>
       </Modal>
@@ -112,7 +156,7 @@ function MeetingForm({ modal, onClose, onDone }) {
   const d = modal.data;
   const [form, setForm] = useState({
     title: d.title || '', type: d.type || 'Meeting',
-    date: d.date ? d.date.slice(0, 10) : '', time: d.time || '',
+    date: d.date ? localDateInput(d.date) : '', time: d.time || '',
     venue: d.venue || '', municipality: d.municipality || 'Santa Cruz',
     agenda: d.agenda || '', description: d.description || '',
     pointsReward: d.pointsReward ?? 10,
@@ -127,7 +171,11 @@ function MeetingForm({ modal, onClose, onDone }) {
   const submit = (e) => {
     e.preventDefault();
     if (!form.title || !form.date) return toast.error('Title and date are required.');
-    m.mutate({ ...form, pointsReward: Number(form.pointsReward) || 0, volunteerSlots: Number(form.volunteerSlots) || 0 });
+    if (form.time.trim() && !parseTimeText(form.time)) return toast.error('Write the time like 9:00 AM or 14:30.');
+    m.mutate({
+      ...form, date: combineDateTime(form.date, form.time),
+      pointsReward: Number(form.pointsReward) || 0, volunteerSlots: Number(form.volunteerSlots) || 0,
+    });
   };
   return (
     <Modal open onClose={onClose} title={isEdit ? 'Edit event' : 'New event'} size="lg"
@@ -196,7 +244,8 @@ function QRModal({ meeting, onClose, onChange }) {
             <p className="text-sm font-bold text-fg">{m.title}</p>
             {live && m.qrToken ? (
               <>
-                <img src={qrSrc(m.qrToken)} alt="Check-in QR" className="mx-auto h-60 w-60 rounded-xl border border-border bg-white p-2" />
+                {/* drawn locally — the token is a secret and must not go to an outside QR service */}
+                <div className="mx-auto w-fit rounded-xl border border-border bg-white p-3" role="img" aria-label="Check-in QR code"><QRCodeCanvas value={m.qrToken || ''} size={220} /></div>
                 <p className="text-xs text-muted">Kabataan scan this to check in and earn points.{m.qrExpiry ? ` Expires ${new Date(m.qrExpiry).toLocaleString('en-PH')}.` : ''}</p>
                 <Button variant="danger" loading={offM.isPending} onClick={() => offM.mutate()} className="w-full"><Power className="h-4 w-4" /> Deactivate &amp; end</Button>
               </>
@@ -240,7 +289,7 @@ function ManageModal({ id, initialTab, onClose }) {
   ];
 
   return (
-    <Modal open onClose={onClose} title={m.title || 'Event'} size="md" footer={<Button variant="ghost" onClick={onClose}>Close</Button>}>
+    <Modal open onClose={onClose} title={m.title || 'Event'} size="lg" footer={<Button variant="ghost" onClick={onClose}>Close</Button>}>
       <div className="mb-4 inline-flex flex-wrap rounded-xl border border-border bg-surface p-1">
         {tabs.map((t) => (
           <button key={t.k} onClick={() => setTab(t.k)}
@@ -252,20 +301,7 @@ function ManageModal({ id, initialTab, onClose }) {
 
       {isLoading ? <div className="flex justify-center py-8"><Spinner className="h-6 w-6 text-primary" /></div>
         : tab === 'checkins' ? (
-          checkedIn.length === 0 ? <EmptyState icon={Users} title="No check-ins yet" description="Attendees who scan the QR appear here." />
-            : (
-              <div className="max-h-[55vh] space-y-2 overflow-y-auto">
-                {checkedIn.map((c, i) => (
-                  <div key={c._id || i} className="flex items-center gap-3 rounded-xl bg-surface2/60 px-3 py-2.5">
-                    <Avatar name={`${c.user?.firstName || ''} ${c.user?.lastName || ''}`} src={c.user?.photo} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-fg">{c.user?.firstName} {c.user?.lastName}</p>
-                      <p className="text-xs text-subtle">{c.user?.barangay || ''}{c.checkedInAt ? ` · ${new Date(c.checkedInAt).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}` : ''}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )
+          <AttendancePanel meetingId={id} />
         ) : tab === 'volunteers' ? (
           <>
             {m.volunteerRole && <p className="mb-3 text-sm text-muted">Task: <span className="font-medium text-fg">{m.volunteerRole}</span>{m.volunteerSlots ? ` · ${volunteers.length}/${m.volunteerSlots} slots` : ''}</p>}

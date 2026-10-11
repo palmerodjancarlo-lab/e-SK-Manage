@@ -3,12 +3,18 @@
 // Admin creates SK official accounts — they cannot self-register
 
 const User     = require('../models/User')
+const serverError = require('../utils/serverError')
 const AuditLog = require('../models/AuditLog')
+const { streamIdDocument } = require('../utils/idDocuments')
+const { notifyResidencyChange } = require('../utils/notify')
+const { releaseHeldPoints } = require('../utils/heldPoints')
 
 // Roles admin can create
 const SK_ROLES = ['sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']
 const SINGLE_ROLES = ['sk_chairperson','sk_secretary','sk_treasurer']
-const DEFAULT_TEMP_PASSWORD = 'SKManage2026'
+// A random temporary password per account (a shared default would let anyone who knows it
+// into every new SK account). Shown once to the Chairperson in the create result.
+const tempPassword = () => `sk-${require('crypto').randomBytes(5).toString('hex')}`
 
 // GET /api/admin/users
 const getUsers = async (req, res) => {
@@ -18,7 +24,7 @@ const getUsers = async (req, res) => {
     const users = await User.find(filter).sort({ createdAt:-1 }).select('-password')
     res.json({ users })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -29,7 +35,7 @@ const getUser = async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found.' })
     res.json({ user })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -37,7 +43,8 @@ const getUser = async (req, res) => {
 // Admin creates SK official accounts
 const createSKAccount = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, role, position, contactNumber, address } = req.body
+    const { firstName, lastName, password, role, position, contactNumber, address } = req.body
+    const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : ''
 
     if (!firstName || !lastName || !email || !password || !role) {
       return res.status(400).json({ message: 'All fields are required.' })
@@ -88,7 +95,7 @@ const createSKAccount = async (req, res) => {
       }
     })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -118,7 +125,8 @@ const bulkCreateSK = async (req, res) => {
       const lastName  = String(o.lastName || '').trim()
       const email     = String(o.email || '').trim().toLowerCase()
       const role      = o.role
-      const password  = (o.password && String(o.password).length >= 6) ? String(o.password) : DEFAULT_TEMP_PASSWORD
+      const typed     = (o.password && String(o.password).length >= 6) ? String(o.password) : ''
+      const password  = typed || tempPassword()
       const label     = email || `${firstName} ${lastName}`.trim() || `Row ${i + 1}`
 
       if (!firstName || !lastName || !email || !role) { skipped.push({ row: i + 1, label, reason: 'Missing name, email, or role.' }); continue }
@@ -140,7 +148,7 @@ const bulkCreateSK = async (req, res) => {
         })
         seenEmails.add(email)
         if (SINGLE_ROLES.includes(role)) takenSingles[role] = true
-        created.push({ _id: user._id, firstName, lastName, email, role })
+        created.push({ _id: user._id, firstName, lastName, email, role, ...(typed ? {} : { tempPassword: password }) })
       } catch (e) {
         skipped.push({ row: i + 1, label, reason: e.message || 'Could not create account.' })
       }
@@ -154,7 +162,7 @@ const bulkCreateSK = async (req, res) => {
 
     res.status(201).json({ created, skipped, summary: { created: created.length, skipped: skipped.length } })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -162,8 +170,10 @@ const bulkCreateSK = async (req, res) => {
 // Update any user info
 const updateUser = async (req, res) => {
   try {
-    const { password, ...rest } = req.body // never update password here
-    const user = await User.findByIdAndUpdate(req.params.id, rest, { new:true }).select('-password')
+    // Personal details only — role, points, verification, email and password have their own flows
+    const fields = ['firstName', 'lastName', 'contactNumber', 'address', 'purok', 'position', 'sex', 'civilStatus', 'birthDate', 'isPWD']
+    const updates = Object.fromEntries(fields.filter((f) => req.body[f] !== undefined).map((f) => [f, req.body[f]]))
+    const user = await User.findByIdAndUpdate(req.params.id, updates, { new:true, runValidators:true }).select('-password')
     if (!user) return res.status(404).json({ message: 'User not found.' })
 
     await AuditLog.create({
@@ -174,7 +184,7 @@ const updateUser = async (req, res) => {
 
     res.json({ message: 'User updated.', user })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -196,7 +206,7 @@ const toggleActive = async (req, res) => {
 
     res.json({ message: `Account ${user.isActive ? 'activated' : 'deactivated'}.`, user })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -221,7 +231,7 @@ const resetPassword = async (req, res) => {
 
     res.json({ message: 'Password reset successfully.' })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -230,6 +240,7 @@ const deleteUser = async (req, res) => {
   try {
     const user = await User.findByIdAndDelete(req.params.id)
     if (!user) return res.status(404).json({ message: 'User not found.' })
+    await require('../utils/cleanupUser')(user._id).catch((e) => console.error('[deleteUser] cleanup failed:', e.message))
 
     await AuditLog.create({
       user:    req.user._id,
@@ -239,7 +250,7 @@ const deleteUser = async (req, res) => {
 
     res.json({ message: 'User deleted.' })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -261,7 +272,7 @@ const getStats = async (req, res) => {
       maleCount:male, femaleCount:female, pwdCount:pwd, verifiedCount:verified,
     } })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -274,30 +285,58 @@ const getAuditLogs = async (req, res) => {
       .limit(200)
     res.json({ logs })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
 // PUT /api/admin/users/:id/verify  — head confirms a kabataan is a real Tawiran resident
 const verifyResidency = async (req, res) => {
   try {
-    const { verified } = req.body
+    const verified = !!req.body.verified
+    const before = await User.findById(req.params.id).select('idVerified')
+    if (!before) return res.status(404).json({ message: 'User not found.' })
     const user = await User.findByIdAndUpdate(
       req.params.id,
-      { idVerified: !!verified, idVerifiedBy: req.user._id, idVerifiedAt: new Date() },
+      { idVerified: verified, idVerifiedBy: req.user._id, idVerifiedAt: new Date() },
       { new: true }
     ).select('-password')
     if (!user) return res.status(404).json({ message: 'User not found.' })
+    const changed = user.role === 'kabataan' && !!before.idVerified !== verified
+    // Points they earned while unverified (held at check-in) now go to their balance
+    const released = changed && verified ? await releaseHeldPoints(user._id) : { count: 0, total: 0 }
+    // Tell the member (bell + email) only when the status actually changed,
+    // so a repeated click doesn't send duplicates. Not awaited: email can be slow.
+    if (changed) notifyResidencyChange(user, verified, released.total)
     await AuditLog.create({
       user: req.user._id, action: verified ? 'VERIFY_RESIDENCY' : 'UNVERIFY_RESIDENCY',
-      details: `${req.user.firstName} ${req.user.lastName} ${verified?'verified':'un-verified'} residency of ${user.firstName} ${user.lastName}`,
+      details: `${req.user.firstName} ${req.user.lastName} ${verified?'verified':'un-verified'} residency of ${user.firstName} ${user.lastName}${released.total ? ` — released ${released.total} held pts from ${released.count} check-in(s)` : ''}`,
     }).catch(()=>{})
-    res.json({ message: verified ? 'Resident verified.' : 'Verification removed.', user })
-  } catch (error) { res.status(500).json({ message: error.message }) }
+    res.json({
+      message: verified ? (released.total ? `Resident verified. ${released.total} held points were added to their account.` : 'Resident verified.') : 'Verification removed.',
+      user, releasedPoints: released.total,
+    })
+  } catch (error) { serverError(res, error) }
+}
+
+// @GET /api/admin/users/:id/id-document
+// Streams a member's private residency document for review. Every view is
+// audit-logged because the file is sensitive personal data.
+const getIdDocument = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('+idDocument')
+    if (!user) return res.status(404).json({ message: 'User not found.' })
+
+    AuditLog.create({
+      user: req.user._id, ipAddress: req.ip, action: 'VIEW_ID_DOCUMENT',
+      details: `${req.user.firstName} ${req.user.lastName} viewed the residency document of ${user.firstName} ${user.lastName}`,
+    }).catch(() => {})
+
+    await streamIdDocument(res, user)
+  } catch (error) { serverError(res, error) }
 }
 
 module.exports = {
   getUsers, getUser, createSKAccount, bulkCreateSK, updateUser,
   toggleActive, resetPassword, deleteUser,
-  getStats, getAuditLogs, verifyResidency,
+  getStats, getAuditLogs, verifyResidency, getIdDocument,
 }

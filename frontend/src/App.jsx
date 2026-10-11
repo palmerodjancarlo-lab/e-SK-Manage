@@ -18,7 +18,7 @@ import AdminMeetings from './pages/admin/Meetings';
 import AdminPrograms from './pages/admin/Programs';
 import AdminFinance from './pages/admin/Finance';
 import AdminRewards from './pages/admin/Rewards';
-import AdminUsers from './pages/admin/Users';
+import AdminMembers from './pages/admin/Members';
 import CreateSK from './pages/admin/CreateSK';
 import AdminAudit from './pages/admin/Audit';
 import AdminSettings from './pages/admin/Settings';
@@ -37,6 +37,7 @@ import AbyipReport from './pages/sk/AbyipReport';
 import CbydpReport from './pages/sk/CbydpReport';
 import AccomplishmentReport from './pages/sk/AccomplishmentReport';
 import ReportsHub from './pages/sk/ReportsHub';
+import AttendanceSummary from './pages/shared/AttendanceSummary';
 import SKSettings from './pages/sk/Settings';
 
 // Kabataan
@@ -73,10 +74,11 @@ export default function App() {
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="announcements" element={<AdminAnnouncements />} />
         <Route path="meetings" element={<AdminMeetings />} />
+        <Route path="attendance" element={<AttendanceSummary />} />
         <Route path="programs" element={<AdminPrograms />} />
         <Route path="finance" element={<AdminFinance />} />
         <Route path="rewards" element={<AdminRewards />} />
-        <Route path="users" element={<AdminUsers />} />
+        <Route path="users" element={<AdminMembers />} />
         <Route path="create-sk" element={<CreateSK />} />
         <Route path="logs" element={<AdminAudit />} />
         <Route path="settings" element={<AdminSettings />} />
@@ -92,6 +94,7 @@ export default function App() {
         <Route index element={<SKDashboard />} />
         <Route path="announcements" element={<SKAnnouncements />} />
         <Route path="meetings" element={<SKMeetings />} />
+        <Route path="attendance" element={<AttendanceSummary />} />
         <Route path="finance" element={<SKFinance />} />
         <Route path="programs" element={<SKPrograms />} />
         <Route path="rewards" element={<SKRewards />} />

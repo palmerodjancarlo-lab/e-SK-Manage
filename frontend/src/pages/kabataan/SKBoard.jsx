@@ -40,23 +40,20 @@ export default function KabSKBoard() {
         <div className="space-y-10">
           {/* Chairperson — featured */}
           {head && (
-            <div
-              className="relative mx-auto max-w-md overflow-hidden rounded-3xl p-8 text-center text-white shadow-xl"
-              style={{ background: 'linear-gradient(160deg,#4338ca 0%,#312e81 58%,#1e1b4b 100%)' }}
-            >
-              <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-white/10 blur-xl" />
-              <div className="pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full bg-indigo-400/20 blur-2xl" />
+            <div className="relative mx-auto max-w-md overflow-hidden rounded-xl border border-border bg-surface p-8 text-center shadow-card">
+              {/* SK colours along the top — the portal stays clean & light */}
+              <span aria-hidden="true" className="absolute inset-x-0 top-0 flex h-1"><span className="flex-1 bg-[#0038A8]" /><span className="flex-1 bg-[#CE1126]" /><span className="flex-1 bg-[#FCD116]" /></span>
               <div className="relative flex flex-col items-center">
-                <Avatar name={`${head.firstName} ${head.lastName}`} src={head.photo} size="xl" className="h-24 w-24 ring-4 ring-white/30" />
-                <span className="mt-4 inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 text-xs font-bold ring-1 ring-white/25">
-                  <Crown className="h-3.5 w-3.5" /> {roleLabel(head.role)}
+                <Avatar name={`${head.firstName} ${head.lastName}`} src={head.photo} size="xl" className="h-24 w-24 ring-4 ring-primary/15" />
+                <span className="mt-4 inline-flex items-center gap-1 rounded-full bg-accent/10 px-3 py-1 text-xs font-bold text-accent">
+                  <Crown aria-hidden="true" className="h-3.5 w-3.5" /> {roleLabel(head.role)}
                 </span>
-                <p className="mt-2 text-2xl font-extrabold">{head.firstName} {head.lastName}</p>
-                {head.position && <p className="text-sm text-indigo-100">{head.position}</p>}
+                <p className="mt-2 text-2xl font-extrabold text-fg">{head.firstName} {head.lastName}</p>
+                {head.position && <p className="text-sm text-muted">{head.position}</p>}
                 {(head.email || head.contactNumber) && (
-                  <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs">
-                    {head.email && <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1"><Mail className="h-3 w-3" /> {head.email}</span>}
-                    {head.contactNumber && <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1"><Phone className="h-3 w-3" /> {head.contactNumber}</span>}
+                  <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs text-muted">
+                    {head.email && <a href={`mailto:${head.email}`} className="inline-flex items-center gap-1 rounded-full bg-surface2 px-3 py-1.5 hover:text-primary"><Mail aria-hidden="true" className="h-3 w-3" /> {head.email}</a>}
+                    {head.contactNumber && <a href={`tel:${head.contactNumber}`} className="inline-flex items-center gap-1 rounded-full bg-surface2 px-3 py-1.5 hover:text-primary"><Phone aria-hidden="true" className="h-3 w-3" /> {head.contactNumber}</a>}
                   </div>
                 )}
               </div>

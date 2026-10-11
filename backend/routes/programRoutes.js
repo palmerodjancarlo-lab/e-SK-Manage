@@ -6,9 +6,10 @@ const authorize   = require('../middleware/authorize')
 const {
   getPrograms, getProgram, createProgram, updateProgram, deleteProgram,
   getProjects, createProject, updateProject, deleteProject,
-  getActivities, createActivity, updateActivity,
+  getActivities, createActivity, updateActivity, deleteActivity,
   recordAttendance, getAttendance,
   addPhoto, deletePhoto, getPublicPrograms,
+  addProgressUpdate, deleteProgressUpdate, addDocument, deleteDocument,
 } = require('../controllers/programController')
 
 // Who can manage programs/projects/activities
@@ -27,6 +28,12 @@ router.post('/',     protect, authorize(...MANAGE), createProgram)
 router.put('/:id',   protect, authorize(...MANAGE), updateProgram)
 router.delete('/:id',protect, authorize(...MANAGE), deleteProgram)
 
+// ── Progress updates + supporting documents (Chairperson manages programs)
+router.post('/:id/updates',                protect, authorize(...MANAGE), addProgressUpdate)
+router.delete('/:id/updates/:updateId',    protect, authorize(...MANAGE), deleteProgressUpdate)
+router.post('/:id/documents',              protect, authorize(...MANAGE), addDocument)
+router.delete('/:id/documents/:docId',     protect, authorize(...MANAGE), deleteDocument)
+
 // ── Projects under a program
 router.get('/:programId/projects',   protect, getProjects)
 router.post('/:programId/projects',  protect, authorize(...MANAGE), createProject)
@@ -37,6 +44,7 @@ router.delete('/projects/:id',       protect, authorize(...MANAGE), deleteProjec
 router.get('/projects/:projectId/activities',  protect, getActivities)
 router.post('/projects/:projectId/activities', protect, authorize(...MANAGE), createActivity)
 router.put('/activities/:id',                  protect, authorize(...MANAGE), updateActivity)
+router.delete('/activities/:id',               protect, authorize(...MANAGE), deleteActivity)
 
 // ── Attendance (SK officials record attendance, not kabataan)
 router.get('/activities/:id/attendance',  protect, authorize(...ATTEND), getAttendance)

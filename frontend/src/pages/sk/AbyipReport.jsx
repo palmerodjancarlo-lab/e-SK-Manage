@@ -1,9 +1,11 @@
 import { Fragment, useState, useEffect, useCallback } from 'react';
-import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { FileSpreadsheet, Printer, Save, RefreshCw, Plus, Trash2, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import api from '../../lib/api';
 import { Button, Spinner } from '../../components/ui';
+import ReportToolbar from '../../components/reports/ReportToolbar';
+import { persistReport, printHtml, downloadExcel, letterhead, signatoryBlock } from '../../lib/reports';
 
 const CUR = new Date().getFullYear();
 const YEARS = [CUR + 1, CUR, CUR - 1, CUR - 2];
@@ -38,7 +40,6 @@ function SigField({ heading, name, title, onName, onTitle }) {
 
 export default function AbyipReport() {
   const [params] = useSearchParams();
-  const nav = useNavigate();
   const loc = useLocation();
   const base = loc.pathname.startsWith('/admin') ? '/admin' : '/sk';
   const reportId = params.get('id');
@@ -46,6 +47,10 @@ export default function AbyipReport() {
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savedId, setSavedId] = useState(reportId);
+  const [status, setStatus] = useState('draft');
+  const [dirty, setDirty] = useState(false);
+  const edit = (fn) => { setDoc(fn); setDirty(true); };
 
   const load = useCallback(async (y) => {
     setLoading(true);
@@ -53,6 +58,8 @@ export default function AbyipReport() {
       if (reportId) {
         const r = await api.get(`/finance/reports/${reportId}`);
         const saved = r.data.report?.data;
+        setStatus(r.data.report?.status || 'draft');
+        setDirty(false);
         if (saved) {
           setDoc({
             fiscalYear: saved.fiscalYear || r.data.report.fiscalYear || y,
@@ -64,6 +71,7 @@ export default function AbyipReport() {
         }
       }
       const { data } = await api.get('/finance/reports/abyip/prefill', { params: { year: y } });
+      setDirty(false);
       setDoc({
         fiscalYear: data.fiscalYear,
         fundingHeader: data.fundingHeader || { beginningBalance: 0, tenPercentGF: 0, fundRaising: 0 },
@@ -80,14 +88,14 @@ export default function AbyipReport() {
   if (loading || !doc) return <div className="flex justify-center py-20"><Spinner className="h-8 w-8 text-primary" /></div>;
 
   const blank = () => ({ referenceCode: '', ppa: '', description: '', expectedResults: '', performanceIndicator: '', dateOfImplementation: `January - December ${doc.fiscalYear}`, mooe: 0, ps: 0, co: 0, personResponsible: '' });
-  const setHeader = (k, v) => setDoc((d) => ({ ...d, fundingHeader: { ...d.fundingHeader, [k]: v } }));
-  const setSig = (k, v) => setDoc((d) => ({ ...d, signatories: { ...d.signatories, [k]: v } }));
-  const setArea = (ai, k, v) => setDoc((d) => { const areas = [...d.areas]; areas[ai] = { ...areas[ai], [k]: v }; return { ...d, areas }; });
-  const setCell = (ai, ri, k, v) => setDoc((d) => { const areas = [...d.areas]; const rows = [...areas[ai].rows]; rows[ri] = { ...rows[ri], [k]: v }; areas[ai] = { ...areas[ai], rows }; return { ...d, areas }; });
-  const addRow = (ai) => setDoc((d) => { const areas = [...d.areas]; areas[ai] = { ...areas[ai], rows: [...areas[ai].rows, blank()] }; return { ...d, areas }; });
-  const delRow = (ai, ri) => setDoc((d) => { const areas = [...d.areas]; areas[ai] = { ...areas[ai], rows: areas[ai].rows.filter((_, i) => i !== ri) }; return { ...d, areas }; });
-  const addArea = () => setDoc((d) => ({ ...d, areas: [...d.areas, { area: 'New Program Area', rows: [blank()] }] }));
-  const delArea = (ai) => setDoc((d) => ({ ...d, areas: d.areas.filter((_, i) => i !== ai) }));
+  const setHeader = (k, v) => edit((d) => ({ ...d, fundingHeader: { ...d.fundingHeader, [k]: v } }));
+  const setSig = (k, v) => edit((d) => ({ ...d, signatories: { ...d.signatories, [k]: v } }));
+  const setArea = (ai, k, v) => edit((d) => { const areas = [...d.areas]; areas[ai] = { ...areas[ai], [k]: v }; return { ...d, areas }; });
+  const setCell = (ai, ri, k, v) => edit((d) => { const areas = [...d.areas]; const rows = [...areas[ai].rows]; rows[ri] = { ...rows[ri], [k]: v }; areas[ai] = { ...areas[ai], rows }; return { ...d, areas }; });
+  const addRow = (ai) => edit((d) => { const areas = [...d.areas]; areas[ai] = { ...areas[ai], rows: [...areas[ai].rows, blank()] }; return { ...d, areas }; });
+  const delRow = (ai, ri) => edit((d) => { const areas = [...d.areas]; areas[ai] = { ...areas[ai], rows: areas[ai].rows.filter((_, i) => i !== ri) }; return { ...d, areas }; });
+  const addArea = () => edit((d) => ({ ...d, areas: [...d.areas, { area: 'New Program Area', rows: [blank()] }] }));
+  const delArea = (ai) => edit((d) => ({ ...d, areas: d.areas.filter((_, i) => i !== ai) }));
 
   const colTotals = doc.areas.reduce((acc, a) => {
     a.rows.forEach((r) => { acc.mooe += n(r.mooe); acc.ps += n(r.ps); acc.co += n(r.co); });
@@ -96,10 +104,10 @@ export default function AbyipReport() {
   const grandTotal = colTotals.mooe + colTotals.ps + colTotals.co;
   const totalAvailable = n(doc.fundingHeader.beginningBalance) + n(doc.fundingHeader.tenPercentGF) + n(doc.fundingHeader.fundRaising);
 
-  const save = async (status) => {
+  const save = async (nextStatus) => {
     setSaving(true);
     try {
-      await api.post('/finance/reports', {
+      const id = await persistReport(savedId, {
         title: `ABYIP FY ${doc.fiscalYear}`,
         type: 'abyip',
         fiscalYear: doc.fiscalYear,
@@ -107,9 +115,10 @@ export default function AbyipReport() {
         periodEnd: `${doc.fiscalYear}-12-31`,
         data: { ...doc, fundingHeader: { ...doc.fundingHeader, totalAvailable } },
         summary: { grandTotal, totalAvailable, colTotals },
-        status,
+        status: nextStatus,
       });
-      toast.success(status === 'finalized' ? 'ABYIP finalized and saved.' : 'Draft saved.');
+      setSavedId(id); setStatus(nextStatus); setDirty(false);
+      toast.success(nextStatus === 'finalized' && status !== 'finalized' ? 'ABYIP finalized and saved.' : savedId ? 'Changes saved.' : 'Draft saved.');
     } catch (e) { toast.error(e.response?.data?.message || 'Save failed.'); }
     finally { setSaving(false); }
   };
@@ -130,12 +139,7 @@ export default function AbyipReport() {
     const s = doc.signatories;
 
     return `<div style="font-family:Arial,sans-serif;font-size:11px;color:#111;">
-      <div style="text-align:center;line-height:1.35;">
-        <div>Republic of the Philippines</div><div>Province of Marinduque</div>
-        <div>Municipality of Santa Cruz</div><div><b>BARANGAY TAWIRAN</b></div>
-        <div>Office of the Sangguniang Kabataan</div>
-      </div>
-      <h2 style="text-align:center;margin:10px 0;font-size:14px;">ANNUAL BARANGAY YOUTH INVESTMENT PROGRAM (ABYIP) F.Y. ${doc.fiscalYear}</h2>
+      ${letterhead(`ANNUAL BARANGAY YOUTH INVESTMENT PROGRAM (ABYIP) F.Y. ${doc.fiscalYear}`)}
       <table style="border-collapse:collapse;margin-bottom:8px;">
         <tr><td style="border:1px solid #333;padding:3px 6px;">Beginning Balance from Year ${doc.fiscalYear - 1}</td><td style="border:1px solid #333;padding:3px 6px;text-align:right;">${money(doc.fundingHeader.beginningBalance)}</td></tr>
         <tr><td style="border:1px solid #333;padding:3px 6px;">10% of the Barangay General Fund of ${doc.fiscalYear}</td><td style="border:1px solid #333;padding:3px 6px;text-align:right;">${money(doc.fundingHeader.tenPercentGF)}</td></tr>
@@ -146,56 +150,24 @@ export default function AbyipReport() {
         <thead><tr>${th('Reference Code')}${th('PPAs')}${th('Description')}${th('Expected Results')}${th('Performance Indicator')}${th('Date of Implementation')}${th('MOOE')}${th('Personnel Services')}${th('Capital Outlay')}${th('Total')}${th('Person Responsible')}</tr></thead>
         <tbody>${body}${totalsRow}</tbody>
       </table>
-      <table style="width:100%;margin-top:34px;border-collapse:collapse;">
-        <tr>
-          <td style="width:33%;vertical-align:top;">Prepared by:<br><br><br><b>${esc(s.preparedBy)}</b><br>${esc(s.preparedByTitle || 'SK Secretary')}</td>
-          <td style="width:33%;vertical-align:top;">Recommending Approval:<br><br><br><b>${esc(s.recommendingApproval)}</b><br>${esc(s.recommendingApprovalTitle || 'SK Chairperson')}</td>
-          <td style="width:33%;vertical-align:top;">Noted and Approved:<br><br><br><b>${esc(s.notedApproved)}</b><br>${esc(s.notedApprovedTitle || 'Punong Barangay')}</td>
-        </tr>
-      </table>
+      ${signatoryBlock(s)}
     </div>`;
   };
 
-  const printDoc = () => {
-    const w = window.open('', '_blank');
-    if (!w) { toast.error('Allow pop-ups to print.'); return; }
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>ABYIP FY ${doc.fiscalYear}</title><style>@page{size:landscape;margin:12mm;}body{margin:0;}</style></head><body>${buildDocHTML()}</body></html>`);
-    w.document.close(); w.focus();
-    setTimeout(() => w.print(), 400);
-  };
-
-  const exportExcel = () => {
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>${buildDocHTML()}</body></html>`;
-    const blob = new Blob(['\ufeff', html], { type: 'application/vnd.ms-excel' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `ABYIP_FY_${doc.fiscalYear}.xls`; a.click();
-    URL.revokeObjectURL(url);
-  };
+  const printDoc = () => { if (!printHtml(`ABYIP FY ${doc.fiscalYear}`, buildDocHTML())) toast.error('Allow pop-ups to print.'); };
+  const exportExcel = () => downloadExcel(`ABYIP_FY_${doc.fiscalYear}.xls`, buildDocHTML());
 
   return (
     <div className="space-y-6">
-      <button onClick={() => nav(`${base}/reports`)} className="inline-flex items-center gap-1 text-sm font-semibold text-muted transition hover:text-fg">
-        <ArrowLeft className="h-4 w-4" /> Back to Reports
-      </button>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-extrabold text-fg">ABYIP</h2>
-          <p className="text-sm text-muted">Annual Barangay Youth Investment Program — pre-filled from your PPAs &amp; funds, fully editable.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-            className="rounded-xl border border-border bg-surface px-3 py-2 text-sm font-semibold text-fg outline-none focus:border-primary">
-            {YEARS.map((y) => <option key={y} value={y}>FY {y}</option>)}
-          </select>
-          <Button variant="outline" onClick={() => load(year)}><RefreshCw className="h-4 w-4" /> Reload</Button>
-          <Button variant="outline" onClick={exportExcel}><FileSpreadsheet className="h-4 w-4" /> Excel</Button>
-          <Button variant="outline" onClick={printDoc}><Printer className="h-4 w-4" /> Print / PDF</Button>
-          <Button variant="outline" loading={saving} onClick={() => save('draft')}><Save className="h-4 w-4" /> Save draft</Button>
-          <Button loading={saving} onClick={() => save('finalized')}><CheckCircle2 className="h-4 w-4" /> Finalize</Button>
-        </div>
-      </div>
+      <ReportToolbar
+        title={`ABYIP · FY ${doc.fiscalYear}`}
+        description="Annual Barangay Youth Investment Program — pre-filled from your programs and funds, fully editable."
+        backTo={`${base}/reports`} saved={!!savedId} status={status} dirty={dirty} saving={saving}
+        periodLabel="Fiscal year" periodValue={savedId ? doc.fiscalYear : year}
+        periodOptions={[...new Set([...YEARS, doc.fiscalYear])].map((y) => ({ value: y, label: `FY ${y}` }))}
+        onPeriodChange={setYear} onRefresh={() => load(year)}
+        onExcel={exportExcel} onPrint={printDoc} onSave={save}
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <NumField label={`Beginning Balance (${doc.fiscalYear - 1})`} value={doc.fundingHeader.beginningBalance} onChange={(v) => setHeader('beginningBalance', v)} />
@@ -224,7 +196,7 @@ export default function AbyipReport() {
                     <input value={a.area} onChange={(e) => setArea(ai, 'area', e.target.value)} className="w-full bg-transparent font-bold text-fg outline-none" />
                   </td>
                   <td className="px-1 text-center">
-                    <button onClick={() => delArea(ai)} className="text-danger hover:opacity-70" title="Remove area"><Trash2 className="h-3.5 w-3.5" /></button>
+                    <button type="button" onClick={() => delArea(ai)} className="text-danger hover:opacity-70" title="Remove area" aria-label={`Remove area ${a.area}`}><Trash2 className="h-3.5 w-3.5" /></button>
                   </td>
                 </tr>
                 {a.rows.map((r, ri) => (
@@ -240,7 +212,7 @@ export default function AbyipReport() {
                     <td className="border border-border px-1"><input type="number" value={r.co} onChange={(e) => setCell(ai, ri, 'co', e.target.value)} className={numCls} /></td>
                     <td className="border border-border px-2 text-right font-bold tabular-nums text-fg">₱ {money(n(r.mooe) + n(r.ps) + n(r.co))}</td>
                     <td className="border border-border px-1"><textarea rows={2} value={r.personResponsible} onChange={(e) => setCell(ai, ri, 'personResponsible', e.target.value)} className={cellCls} /></td>
-                    <td className="px-1 text-center"><button onClick={() => delRow(ai, ri)} className="text-danger hover:opacity-70" title="Remove row"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                    <td className="px-1 text-center"><button type="button" onClick={() => delRow(ai, ri)} className="text-danger hover:opacity-70" title="Remove row" aria-label={`Remove row ${ri + 1}`}><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
                 ))}
                 <tr>

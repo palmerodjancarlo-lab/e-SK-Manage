@@ -2,12 +2,14 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Plus, Pin, PinOff, Pencil, Trash2, Megaphone, Link2, CalendarClock, Calendar, Clock, MapPin, Star, HandHeart, ClipboardList, Activity } from 'lucide-react';
+import { Plus, Pin, PinOff, Pencil, Trash2, Megaphone, Link2, CalendarClock, Calendar, Clock, MapPin, Star, HandHeart, ClipboardList, Activity, Search } from 'lucide-react';
 import api from '../../lib/api';
+import { statusLabel } from '../../lib/programs';
 import {
   PageHeader, Card, CardContent, Spinner, Badge, Button, Input, Textarea, Select,
-  Modal, EmptyState,
+  Modal, EmptyState, Avatar, IconButton,
 } from '../../components/ui';
+import { cn, timeAgo } from '../../lib/utils';
 import { useAuth } from '../../context/auth-store';
 import { isHead } from '../../lib/roles';
 
@@ -23,7 +25,7 @@ const sourceLabel = (t) => (t === 'meeting' ? 'Event' : t === 'program' ? 'Progr
 const metaSummary = (meta) => {
   if (!meta || !meta.kind) return '';
   if (meta.kind === 'meeting') return [fmtShort(meta.date), meta.time, meta.venue].filter(Boolean).join(' · ');
-  if (meta.kind === 'program') return [meta.status, meta.startDate ? `Starts ${fmtShort(meta.startDate)}` : ''].filter(Boolean).join(' · ');
+  if (meta.kind === 'program') return [meta.status && `Status: ${statusLabel(meta.status)}`, meta.startDate ? `Starts ${fmtShort(meta.startDate)}` : ''].filter(Boolean).join(' · ');
   return '';
 };
 
@@ -37,7 +39,7 @@ function MetaBlock({ meta }) {
     if (meta.points) rows.push({ k: 'Reward', icon: <Star className="h-4 w-4" />, v: `${meta.points} points via QR check-in` });
     if (meta.volunteerRole) rows.push({ k: 'Volunteers', icon: <HandHeart className="h-4 w-4" />, v: meta.volunteerRole });
   } else if (meta.kind === 'program') {
-    if (meta.status) rows.push({ k: 'Status', icon: <Activity className="h-4 w-4" />, v: meta.status });
+    if (meta.status) rows.push({ k: 'Status', icon: <Activity className="h-4 w-4" />, v: statusLabel(meta.status) });
     if (meta.startDate) rows.push({ k: 'Starts', icon: <Calendar className="h-4 w-4" />, v: fmtEvent(meta.startDate) });
   }
   if (!rows.length && !meta.agenda) return null;
@@ -70,6 +72,7 @@ export default function Announcements() {
   const canManage = isHead(user?.role) || user?.role === 'sk_secretary';
 
   const [filter, setFilter] = useState('All');
+  const [q, setQ] = useState('');
   const [modal, setModal] = useState(null);  // {mode, data}
   const [detail, setDetail] = useState(null); // announcement being viewed
   const [del, setDel] = useState(null);
@@ -97,7 +100,10 @@ export default function Announcements() {
     return ['All', ...TAB_ORDER.filter((c) => present.has(c))];
   }, [items]);
 
-  const shown = filter === 'All' ? items : items.filter((a) => a.category === filter);
+  const term = q.trim().toLowerCase();
+  const shown = (filter === 'All' ? items : items.filter((a) => a.category === filter))
+    .filter((a) => !term || `${a.title} ${a.content}`.toLowerCase().includes(term));
+  const countOf = (c) => (c === 'All' ? items.length : items.filter((a) => a.category === c).length);
   const pinned = shown.filter((a) => a.isPinned);
   const rest = shown.filter((a) => !a.isPinned);
 
@@ -106,19 +112,28 @@ export default function Announcements() {
       <PageHeader
         title="Announcements"
         description="Post updates for the kabataan of Barangay Tawiran."
-        actions={canManage ? <Button onClick={() => setModal({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New</Button> : null}
+        actions={canManage ? <Button onClick={() => setModal({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New announcement</Button> : null}
       />
 
-      <div className="mb-4 flex flex-wrap gap-1 rounded-xl bg-surface2 p-1">
-        {tabs.map((c) => (
-          <button
-            key={c}
-            onClick={() => setFilter(c)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${filter === c ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg'}`}
-          >
-            {c}
-          </button>
-        ))}
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap gap-1 rounded-xl bg-surface2 p-1" role="group" aria-label="Filter by category">
+          {tabs.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-pressed={filter === c}
+              onClick={() => setFilter(c)}
+              className={cn('inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition-colors',
+                filter === c ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg')}
+            >
+              {c}<span className="rounded bg-surface2 px-1.5 text-xs tabular-nums text-muted">{countOf(c)}</span>
+            </button>
+          ))}
+        </div>
+        <div className="lg:w-72">
+          <Input type="search" aria-label="Search announcements" placeholder="Search announcements…" value={q}
+            onChange={(e) => setQ(e.target.value)} leftIcon={<Search className="h-4 w-4" />} />
+        </div>
       </div>
 
       {isLoading ? (
@@ -126,50 +141,59 @@ export default function Announcements() {
       ) : shown.length === 0 ? (
         <EmptyState
           icon={Megaphone}
-          title="No announcements"
-          description={canManage ? 'Post the first announcement.' : 'No announcements yet.'}
+          title={term ? 'No announcements match your search' : 'No announcements yet'}
+          description={term ? 'Try other words, or clear the search.' : canManage ? 'Post updates the kabataan will see on their home page.' : 'Announcements will appear here.'}
           action={canManage ? <Button onClick={() => setModal({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New</Button> : null}
         />
       ) : (
-        <div className="space-y-3">
-          {[...pinned, ...rest].map((a) => {
-            const src = sourceLabel(a.sourceType);
-            return (
-              <Card key={a._id} className="transition hover:border-primary/40">
-                <CardContent className="flex items-start justify-between gap-4">
-                  <button type="button" onClick={() => setDetail(a)} className="min-w-0 flex-1 text-left">
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <Badge variant="primary">{a.category}</Badge>
-                      {a.isPinned && <Badge variant="accent"><Pin className="h-3 w-3" /> Pinned</Badge>}
-                      {src && <Badge variant="info"><Link2 className="h-3 w-3" /> From {src}</Badge>}
-                    </div>
-                    <h3 className="font-bold text-fg">{a.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-sm text-muted">{a.content}</p>
-                    {metaSummary(a.meta) && (
-                      <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-primary">
-                        <Calendar className="h-3.5 w-3.5" /> {metaSummary(a.meta)}
-                      </p>
-                    )}
-                    <p className="mt-2 text-xs text-subtle">
-                      {a.author?.firstName} {a.author?.lastName} · {fmt(a.createdAt)}
-                    </p>
-                  </button>
+        <div className="space-y-6">
+          {[['Pinned', pinned], [pinned.length ? 'Recent' : null, rest]].map(([heading, list]) => list.length > 0 && (
+            <section key={heading || 'all'} aria-label={heading || 'Announcements'}>
+              {heading && <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-subtle">{heading}</h2>}
+              <div className="space-y-3">
+                {list.map((a) => {
+                  const src = sourceLabel(a.sourceType);
+                  const author = `${a.author?.firstName || ''} ${a.author?.lastName || ''}`.trim();
+                  return (
+                    <Card key={a._id} className={cn('group transition-shadow hover:shadow-pop', a.isPinned && 'border-l-4 border-l-accent')}>
+                      <CardContent className="flex items-start gap-4">
+                        <button type="button" onClick={() => setDetail(a)} className="min-w-0 flex-1 text-left">
+                          <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                            <Badge variant="primary">{a.category}</Badge>
+                            {a.isPinned && <Badge variant="accent"><Pin className="h-3 w-3" /> Pinned</Badge>}
+                            {src && <Badge variant="info"><Link2 className="h-3 w-3" /> From {src}</Badge>}
+                          </div>
+                          <h3 className="font-bold text-fg group-hover:text-primary">{a.title}</h3>
+                          <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted">{a.content}</p>
+                          {metaSummary(a.meta) && (
+                            <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-primary">
+                              <Calendar className="h-3.5 w-3.5" /> {metaSummary(a.meta)}
+                            </p>
+                          )}
+                          <p className="mt-3 flex items-center gap-2 text-xs text-subtle">
+                            <Avatar name={author} src={a.author?.photo} size="sm" className="h-6 w-6 text-[10px]" />
+                            <span className="font-medium text-muted">{author || 'SK'}</span>
+                            <span aria-hidden="true">·</span>
+                            <time dateTime={a.createdAt} title={fmt(a.createdAt)}>{timeAgo(a.createdAt)}</time>
+                          </p>
+                        </button>
 
-                  {canManage && (
-                    <div className="flex shrink-0 gap-1.5">
-                      <Button size="sm" variant="ghost" onClick={() => pinM.mutate(a._id)} title={a.isPinned ? 'Unpin' : 'Pin'}>
-                        {a.isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-                      </Button>
-                      {a.sourceType === 'manual' && (
-                        <Button size="sm" variant="ghost" onClick={() => setModal({ mode: 'edit', data: a })} title="Edit"><Pencil className="h-4 w-4" /></Button>
-                      )}
-                      <Button size="sm" variant="ghost" className="text-danger hover:bg-danger/10" onClick={() => setDel(a)} title="Delete"><Trash2 className="h-4 w-4" /></Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+                        {canManage && (
+                          <div className="flex shrink-0 gap-1">
+                            <IconButton icon={a.isPinned ? PinOff : Pin} label={a.isPinned ? `Unpin “${a.title}”` : `Pin “${a.title}” to the top`} tone="primary" onClick={() => pinM.mutate(a._id)} />
+                            {a.sourceType === 'manual' && (
+                              <IconButton icon={Pencil} label={`Edit “${a.title}”`} onClick={() => setModal({ mode: 'edit', data: a })} />
+                            )}
+                            <IconButton icon={Trash2} label={`Delete “${a.title}”`} tone="danger" onClick={() => setDel(a)} />
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 

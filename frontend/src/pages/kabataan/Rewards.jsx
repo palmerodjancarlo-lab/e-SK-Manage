@@ -1,54 +1,82 @@
+// src/pages/kabataan/Rewards.jsx — points, rewards catalogue, leaderboard and history
+// Redeeming: request → points deducted and one item reserved (first come, first served)
+// → pick it up from an SK officer with the code. Cancelling a waiting request refunds it.
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Star, Trophy, Gift, TrendingUp, ChevronRight, Crown, Check, Lock, History as HistoryIcon } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { Star, Trophy, Gift, TrendingUp, Crown, Check, Lock, History as HistoryIcon, Package, CalendarCheck, Medal, Ticket, Clock, ShieldAlert, Hourglass } from 'lucide-react';
 import api from '../../lib/api';
-import { Card, CardContent, Spinner, Badge, Avatar, EmptyState } from '../../components/ui';
+import HeldPointsNote from '../../components/points/HeldPointsNote';
+import { Card, CardContent, Spinner, Avatar, EmptyState, PageHeader, AnimatedNumber, Button, Modal, Badge } from '../../components/ui';
 import { useAuth } from '../../context/auth-store';
 import { cn } from '../../lib/utils';
 
 const LEVEL_SIZE = 100; // points needed per level
 const fmt = (d) => new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 
+const REQ_STATUS = {
+  pending: { label: 'Waiting for pickup', tone: 'warning' },
+  claimed: { label: 'Claimed', tone: 'success' },
+  cancelled: { label: 'Cancelled', tone: 'default' },
+  rejected: { label: 'Not approved', tone: 'danger' },
+};
+
 const TABS = [
-  { k: 'leaderboard', label: 'Leaderboard', icon: Trophy },
   { k: 'rewards', label: 'Rewards', icon: Gift },
+  { k: 'leaderboard', label: 'Leaderboard', short: 'Ranks', icon: Trophy },
   { k: 'history', label: 'History', icon: HistoryIcon },
 ];
 
-const HEADERS = {
-  leaderboard: { title: 'Leaderboard', sub: 'See how you rank among the kabataan of Barangay Tawiran.' },
-  rewards: { title: 'Kabataan Rewards', sub: 'Earn points, get rewards, and be more active for your community!' },
-  history: { title: 'Points History', sub: 'Every point you’ve earned and redeemed, all in one place.' },
-};
+function Center() { return <div className="flex justify-center py-12" role="status"><Spinner className="h-7 w-7 text-primary" /><span className="sr-only">Loading…</span></div>; }
 
-function Center() { return <div className="flex justify-center py-12"><Spinner className="h-7 w-7 text-emerald-600" /></div>; }
-
-function StatTile({ icon, value, label, tone }) {
+function HeroStat({ icon, label, value }) {
+  const Icon = icon;
   return (
-    <div className="rounded-xl border border-border bg-surface p-2 text-center shadow-card">
-      <span className={cn('mx-auto flex h-7 w-7 items-center justify-center rounded-lg', tone)}>{icon}</span>
-      <p className="mt-1 text-sm font-extrabold leading-tight tabular-nums text-fg">{value}</p>
-      <p className="text-[10px] font-medium leading-tight text-muted">{label}</p>
+    <div className="rounded-xl border border-border bg-surface2/50 p-3">
+      <p className="flex items-center gap-1.5 text-xs text-muted"><Icon aria-hidden="true" className="h-3.5 w-3.5 text-primary" />{label}</p>
+      <p className="mt-0.5 text-xl font-extrabold tabular-nums text-fg">{value}</p>
     </div>
   );
 }
 
+// Podium place: medal colour + the number, never colour alone
+const PLACE = {
+  1: { ring: 'border-primary/40 bg-surface shadow-card', medal: 'bg-gold text-[#0F2740]', lift: 'sm:-translate-y-3' },
+  2: { ring: 'border-border bg-surface', medal: 'bg-slate-300 text-slate-900', lift: '' },
+  3: { ring: 'border-border bg-surface', medal: 'bg-orange-300 text-orange-950', lift: '' },
+};
+
 export default function KabRewards() {
   const { user } = useAuth();
-  const [tab, setTab] = useState('leaderboard');
+  const qc = useQueryClient();
+  const [params] = useSearchParams();
+  const [confirm, setConfirm] = useState(null); // reward being redeemed
+  const [tab, setTab] = useState(() => (TABS.some((t) => t.k === params.get('tab')) ? params.get('tab') : 'rewards'));
 
   const points = useQuery({ queryKey: ['my-points'], queryFn: async () => (await api.get('/points/my')).data });
   const rewardsQ = useQuery({ queryKey: ['rewards'], queryFn: async () => (await api.get('/rewards')).data.rewards });
   const board = useQuery({ queryKey: ['leaderboard'], queryFn: async () => (await api.get('/points/leaderboard')).data.leaderboard });
   const profile = useQuery({ queryKey: ['profile'], queryFn: async () => (await api.get('/auth/profile')).data.user });
+  const requestsQ = useQuery({ queryKey: ['my-redemptions'], queryFn: async () => (await api.get('/rewards/redemptions/mine')).data.redemptions || [] });
+  const afterChange = () => ['my-points', 'rewards', 'points-history', 'my-redemptions', 'profile'].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  const redeemM = useMutation({
+    mutationFn: (id) => api.post(`/rewards/${id}/redeem`),
+    onSuccess: (r) => { toast.success(r.data.message || 'Request sent.', { duration: 6000 }); setConfirm(null); afterChange(); },
+    onError: (e) => { toast.error(e.response?.data?.message || 'Could not send the request.'); afterChange(); },
+  });
+  const cancelM = useMutation({
+    mutationFn: (id) => api.put(`/rewards/redemptions/${id}/cancel`),
+    onSuccess: (r) => { toast.success(r.data.message || 'Request cancelled.'); afterChange(); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Could not cancel.'),
+  });
   const historyQ = useQuery({
     queryKey: ['points-history'],
     queryFn: async () => {
       const list = (await api.get('/points/history')).data.history || [];
       const now = new Date();
       const thisMonth = list
-        .filter((h) => h.type !== 'redeemed' && (() => { const d = new Date(h.checkedInAt || h.createdAt); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })())
+        .filter((h) => (h.type === 'earned' || h.type === 'awarded') && (() => { const d = new Date(h.checkedInAt || h.createdAt); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })())
         .reduce((s, h) => s + (h.pointsEarned || 0), 0);
       return { list, thisMonth };
     },
@@ -56,14 +84,17 @@ export default function KabRewards() {
 
   const p = profile.data;
   const balance = points.data?.balance ?? 0;
-  const rewards = (rewardsQ.data || []).filter((r) => r.isActive);
+  const rewards = (rewardsQ.data || []).filter((r) => r.isActive).sort((a, b) => a.pointsRequired - b.pointsRequired);
   const list = board.data || [];
   const history = historyQ.data?.list || [];
   const thisMonth = historyQ.data?.thisMonth ?? 0;
+  const requests = requestsQ.data || [];
+  const waitingFor = new Set(requests.filter((r) => r.status === 'pending').map((r) => String(r.reward)));
+  const shownRequests = requests.filter((r, i) => r.status === 'pending' || i < 5);
+  const verified = !!p?.idVerified;
+  const rewardsAvailable = rewards.filter((r) => r.pointsRequired <= balance && r.stock !== 0 && !waitingFor.has(r._id)).length;
 
   const myRank = list.findIndex((u) => u._id === user?._id);
-  const rankLabel = myRank >= 0 ? `#${myRank + 1}` : '—';
-  const rewardsAvailable = rewards.filter((r) => r.pointsRequired <= balance).length;
   const level = Math.floor(balance / LEVEL_SIZE) + 1;
   const levelProg = Math.round(((balance % LEVEL_SIZE) / LEVEL_SIZE) * 100);
   const toNext = LEVEL_SIZE - (balance % LEVEL_SIZE);
@@ -73,128 +104,114 @@ export default function KabRewards() {
   const rows = list.length >= 3 ? list.slice(3) : list;
   const rowStart = list.length >= 3 ? 4 : 1;
 
-  const head = HEADERS[tab];
-
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-5">
-      {/* Header — changes with the active tab */}
-      <div className="relative overflow-hidden rounded-2xl border border-emerald-200/60 bg-gradient-to-br from-emerald-50 to-teal-50 p-4 dark:border-emerald-500/20 dark:from-emerald-500/10 dark:to-teal-500/10">
-        <h1 className="text-xl font-extrabold text-emerald-900 dark:text-emerald-100">{head.title}</h1>
-        <p className="mt-0.5 text-sm text-emerald-800/80 dark:text-emerald-200/70">{head.sub}</p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader className="mb-0" title="Points & Rewards" description="Join events to earn points, then claim rewards from your SK." />
 
-      {/* Profile / level card */}
-      <Link to="/kabataan/profile">
-        <Card className="transition hover:border-emerald-300">
-          <CardContent className="flex items-center gap-3">
-            <Avatar name={fullName} src={p?.photo} size="lg" className="ring-2 ring-emerald-500/30" />
+      {/* You — level + stats */}
+      <Card>
+        <CardContent className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] lg:items-center">
+          <Link to="/kabataan/profile?tab=activity" className="flex items-center gap-4 rounded-xl">
+            <Avatar name={fullName} src={p?.photo} size="xl" />
             <div className="min-w-0 flex-1">
-              <p className="truncate font-bold text-fg">{fullName}</p>
-              <p className="text-xs text-muted">Kabataan Member</p>
-              <div className="mt-1.5 flex items-center gap-2">
-                <Badge variant="success">Level {level}</Badge>
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface2">
-                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${levelProg}%` }} />
-                </div>
-                <span className="whitespace-nowrap text-[11px] text-subtle">{toNext} to Lv {level + 1}</span>
+              <p className="truncate text-xl font-bold text-fg">{fullName}</p>
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+                <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary"><Medal aria-hidden="true" className="h-3.5 w-3.5" /> Level {level}</span>
+                <span className="text-muted">{toNext} pts to level {level + 1}</span>
+              </p>
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface2" role="progressbar" aria-valuenow={levelProg} aria-valuemin={0} aria-valuemax={100} aria-label={`Progress to level ${level + 1}`}>
+                <div className="h-full rounded-full bg-primary" style={{ width: `${levelProg}%` }} />
               </div>
             </div>
-            <ChevronRight className="h-5 w-5 shrink-0 text-subtle" />
-          </CardContent>
-        </Card>
-      </Link>
+          </Link>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <HeroStat icon={Star} label="Points" value={<AnimatedNumber value={balance} />} />
+            <HeroStat icon={Trophy} label="Your rank" value={myRank >= 0 ? `#${myRank + 1}` : '—'} />
+            <HeroStat icon={Gift} label="Can claim" value={rewardsAvailable} />
+            <HeroStat icon={TrendingUp} label="This month" value={`+${thisMonth}`} />
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Stat tiles — compact row of 4 */}
-      <div className="grid grid-cols-4 gap-2">
-        <StatTile icon={<Star className="h-4 w-4" />} value={balance.toLocaleString()} label="Points" tone="bg-amber-500/15 text-amber-500" />
-        <StatTile icon={<Trophy className="h-4 w-4" />} value={rankLabel} label="Rank" tone="bg-emerald-500/15 text-emerald-600" />
-        <StatTile icon={<Gift className="h-4 w-4" />} value={rewardsAvailable} label="Rewards" tone="bg-rose-500/15 text-rose-500" />
-        <StatTile icon={<TrendingUp className="h-4 w-4" />} value={`+${thisMonth}`} label="This Month" tone="bg-sky-500/15 text-sky-500" />
-      </div>
+      <HeldPointsNote held={points.data?.held} />
 
-      {/* Segmented tabs (won't overflow) */}
-      <div className="grid grid-cols-3 gap-1 rounded-xl border border-border bg-surface2 p-1">
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-surface2 p-1 sm:inline-flex" role="tablist" aria-label="Points and rewards">
         {TABS.map((t) => (
-          <button key={t.k} onClick={() => setTab(t.k)}
-            className={cn('flex min-w-0 items-center justify-center gap-1 rounded-lg py-2 text-xs font-semibold transition',
-              tab === t.k ? 'bg-emerald-600 text-white shadow-sm' : 'text-muted hover:bg-surface hover:text-fg')}>
-            <t.icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{t.label}</span>
+          <button key={t.k} type="button" role="tab" aria-selected={tab === t.k} onClick={() => setTab(t.k)}
+            className={cn('inline-flex min-h-[40px] min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-sm sm:px-4 font-semibold transition-colors sm:flex-none',
+              tab === t.k ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg')}>
+            <t.icon aria-hidden="true" className="h-4 w-4 shrink-0" />
+            <span className="truncate sm:hidden">{t.short || t.label}</span>
+            <span className="hidden sm:inline">{t.label}</span>
           </button>
         ))}
       </div>
 
-      {/* LEADERBOARD */}
-      {tab === 'leaderboard' && (
-        board.isLoading ? <Center />
-          : list.length === 0 ? <EmptyState icon={Trophy} title="No rankings yet" description="Once verified members earn points, they'll appear here." />
-          : (
-            <div className="space-y-4">
-              {podium && (
-                <div className="grid grid-cols-3 items-end gap-2">
-                  {podium.map(({ u, place }) => {
-                    const first = place === 1;
-                    return (
-                      <div key={u._id}
-                        className={cn('flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-center',
-                          first ? '-translate-y-2 border-amber-300 bg-amber-50 shadow-card dark:border-amber-500/40 dark:bg-amber-500/10' : 'border-border bg-surface')}>
-                        {first && <Crown className="h-5 w-5 text-amber-500" />}
-                        <div className="relative">
-                          <Avatar name={`${u.firstName} ${u.lastName}`} src={u.photo} size={first ? 'lg' : 'md'} />
-                          <span className={cn('absolute -bottom-1 left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full text-[10px] font-bold text-white', first ? 'bg-amber-500' : 'bg-emerald-600')}>{place}</span>
-                        </div>
-                        <p className="mt-1 max-w-[72px] truncate text-xs font-bold text-fg">{u.firstName}</p>
-                        <p className="text-xs font-bold text-emerald-600">{(u.points ?? 0).toLocaleString()} pts</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <Card><CardContent className="space-y-1">
-                {rows.map((u, i) => {
-                  const rank = rowStart + i;
-                  const isMe = u._id === user?._id;
-                  return (
-                    <div key={u._id} className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5', isMe ? 'bg-emerald-500/10 outline outline-1 outline-emerald-500/30' : 'hover:bg-surface2/60')}>
-                      <span className="w-7 text-center text-sm font-bold text-subtle">#{rank}</span>
-                      <Avatar name={`${u.firstName} ${u.lastName}`} src={u.photo} size="sm" />
-                      <span className="flex-1 truncate text-sm font-bold text-fg">{isMe ? 'You' : `${u.firstName} ${u.lastName}`}</span>
-                      <span className="text-sm font-bold text-emerald-600">{(u.points ?? 0).toLocaleString()} pts</span>
+      {/* REWARDS */}
+      {tab === 'rewards' && shownRequests.length > 0 && (
+        <Card>
+          <CardContent>
+            <h2 className="flex items-center gap-2 font-bold text-fg"><Ticket aria-hidden="true" className="h-5 w-5 text-primary" /> Your requests</h2>
+            <p className="mt-0.5 text-sm text-muted">Show the code to an SK officer when you pick up your reward.</p>
+            <ul className="mt-3 divide-y divide-border">
+              {shownRequests.map((r) => {
+                const st = REQ_STATUS[r.status] || REQ_STATUS.pending;
+                return (
+                  <li key={r._id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-fg">{r.rewardTitle}</p>
+                      <p className="text-xs text-subtle">{fmt(r.createdAt)} · {r.points} pts{r.status === 'rejected' && r.note ? ` · ${r.note}` : ''}</p>
                     </div>
-                  );
-                })}
-                {rows.length === 0 && <p className="py-3 text-center text-sm text-muted">Only the top members so far — keep earning to join the list!</p>}
-              </CardContent></Card>
-            </div>
-          )
+                    {r.status === 'pending' && <span className="rounded-lg border border-dashed border-primary/50 bg-primary/5 px-2.5 py-1 font-mono text-sm font-bold tracking-wider text-primary" aria-label={`Pickup code ${r.code}`}>{r.code}</span>}
+                    <Badge variant={st.tone}>{st.label}</Badge>
+                    {r.status === 'pending' && (
+                      <Button size="sm" variant="outline" loading={cancelM.isPending && cancelM.variables === r._id} onClick={() => cancelM.mutate(r._id)}>Cancel</Button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
       )}
 
-      {/* REWARDS */}
       {tab === 'rewards' && (
         rewardsQ.isLoading ? <Center />
           : rewards.length === 0 ? <EmptyState icon={Gift} title="No rewards yet" description="The SK hasn't added rewards. Check back soon." />
           : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {rewards.map((r) => {
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {rewards.map((r, i) => {
                 const aff = balance >= r.pointsRequired;
+                const out = r.stock === 0;
                 const pct = Math.min(100, Math.round((balance / r.pointsRequired) * 100));
                 return (
-                  <Card key={r._id} className="overflow-hidden">
-                    {r.image ? <img src={r.image} alt={r.title} className="h-32 w-full object-cover" />
-                      : <div className="flex h-32 items-center justify-center bg-emerald-500/10 text-emerald-600"><Gift className="h-10 w-10" /></div>}
-                    <CardContent>
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 className="font-bold text-fg">{r.title}</h3>
-                        <Badge variant="accent"><Star className="h-3 w-3" /> {r.pointsRequired}</Badge>
-                      </div>
+                  <Card key={r._id} className={cn('flex animate-fade-up flex-col overflow-hidden transition-shadow hover:shadow-pop', aff && !out && 'border-success/40')} style={{ animationDelay: `${i * 50}ms` }}>
+                    <div className="relative">
+                      {r.image ? <img src={r.image} alt="" loading="lazy" className="h-36 w-full object-cover" />
+                        : <div className="flex h-32 items-center justify-center bg-surface2/70 text-primary"><Gift aria-hidden="true" className="h-10 w-10" /></div>}
+                      <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-lg bg-surface px-2.5 py-1 text-sm font-bold text-fg shadow-card ring-1 ring-border">
+                        <Star aria-hidden="true" className="h-3.5 w-3.5 fill-current text-accent" /> {r.pointsRequired} pts
+                      </span>
+                    </div>
+                    <CardContent className="flex flex-1 flex-col">
+                      <h3 className="font-bold text-fg">{r.title}</h3>
                       {r.description && <p className="mt-1 line-clamp-2 text-sm text-muted">{r.description}</p>}
-                      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-surface2">
-                        <div className={cn('h-full rounded-full', aff ? 'bg-emerald-500' : 'bg-emerald-500/50')} style={{ width: `${pct}%` }} />
-                      </div>
-                      <div className="mt-2">
-                        {aff ? <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600"><Check className="h-3.5 w-3.5" /> You can redeem this!</span>
-                          : <span className="inline-flex items-center gap-1 text-xs text-subtle"><Lock className="h-3.5 w-3.5" /> {r.pointsRequired - balance} more points</span>}
+                      {r.stock > 0 && <p className="mt-1 flex items-center gap-1 text-xs text-subtle"><Package aria-hidden="true" className="h-3.5 w-3.5" /> {r.stock} left</p>}
+                      <div className="mt-auto pt-4">
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-surface2">
+                          <div className={cn('h-full rounded-full', aff ? 'bg-success' : 'bg-primary')} style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="mt-2 text-xs">
+                          {out ? <span className="inline-flex items-center gap-1 font-semibold text-subtle"><Lock aria-hidden="true" className="h-3.5 w-3.5" /> Out of stock</span>
+                            : waitingFor.has(r._id) ? <span className="inline-flex items-center gap-1 font-semibold text-warning"><Clock aria-hidden="true" className="h-3.5 w-3.5" /> Requested — waiting for pickup</span>
+                            : aff ? <span className="inline-flex items-center gap-1 font-bold text-success"><Check aria-hidden="true" className="h-3.5 w-3.5" /> You have enough points</span>
+                            : <span className="inline-flex items-center gap-1 text-muted"><Lock aria-hidden="true" className="h-3.5 w-3.5" /> {r.pointsRequired - balance} more points to go</span>}
+                        </p>
+                        {aff && !out && !waitingFor.has(r._id) && (
+                          verified
+                            ? <Button className="mt-3 w-full" onClick={() => setConfirm(r)}><Gift className="h-4 w-4" /> Redeem</Button>
+                            : <Link to="/kabataan/profile?tab=residency" className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-warning hover:underline"><ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" /> Get your residency verified to redeem</Link>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -204,31 +221,96 @@ export default function KabRewards() {
           )
       )}
 
+      {/* LEADERBOARD */}
+      {tab === 'leaderboard' && (
+        board.isLoading ? <Center />
+          : list.length === 0 ? <EmptyState icon={Trophy} title="No rankings yet" description="Once verified members earn points, they'll appear here." />
+          : (
+            <div className="mx-auto max-w-3xl space-y-4">
+              {podium && (
+                <ol className="grid grid-cols-3 items-end gap-2 sm:gap-4" aria-label="Top three">
+                  {podium.map(({ u, place }) => {
+                    const st = PLACE[place];
+                    const isMe = u._id === user?._id;
+                    return (
+                      <li key={u._id} className={cn('flex flex-col items-center rounded-2xl border p-3 text-center sm:p-4', st.ring, st.lift)}>
+                        <span className="mb-2 flex items-center gap-1">
+                          {place === 1 && <Crown aria-hidden="true" className="h-4 w-4 text-accent" />}
+                          <span className={cn('flex h-6 min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-xs font-extrabold', st.medal)}>
+                            <span className="sr-only">Place </span>{place}
+                          </span>
+                        </span>
+                        <Avatar name={`${u.firstName} ${u.lastName}`} src={u.photo} size={place === 1 ? 'xl' : 'lg'} />
+                        <p className="mt-2 w-full truncate text-sm font-bold text-fg">{isMe ? 'You' : u.firstName}</p>
+                        <p className="inline-flex items-center gap-1 text-xs font-bold text-accent"><Star aria-hidden="true" className="h-3 w-3" />{(u.points ?? 0).toLocaleString()}</p>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+
+              {rows.length > 0 && (
+                <Card><CardContent className="p-2 sm:p-3">
+                  <ol start={rowStart} className="divide-y divide-border">
+                    {rows.map((u, i) => {
+                      const isMe = u._id === user?._id;
+                      return (
+                        <li key={u._id} className={cn('flex items-center gap-3 rounded-lg px-3 py-2.5', isMe && 'bg-primary/10')}>
+                          <span className="w-8 text-center text-sm font-bold tabular-nums text-subtle">#{rowStart + i}</span>
+                          <Avatar name={`${u.firstName} ${u.lastName}`} src={u.photo} size="sm" />
+                          <span className={cn('flex-1 truncate text-sm font-semibold', isMe ? 'text-primary' : 'text-fg')}>{isMe ? 'You' : `${u.firstName} ${u.lastName}`}</span>
+                          <span className="inline-flex items-center gap-1 text-sm font-bold tabular-nums text-accent"><Star aria-hidden="true" className="h-3.5 w-3.5" />{(u.points ?? 0).toLocaleString()}</span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </CardContent></Card>
+              )}
+              {myRank < 0 && <p className="text-center text-sm text-muted">You're not on the board yet — check in at an event to start climbing.</p>}
+            </div>
+          )
+      )}
+
       {/* HISTORY */}
       {tab === 'history' && (
         historyQ.isLoading ? <Center />
           : history.length === 0 ? <EmptyState icon={HistoryIcon} title="No points yet" description="Join an event and check in to start earning points." />
           : (
-            <Card><CardContent className="space-y-2">
-              {history.map((h) => (
-                <div key={h._id} className="flex items-center justify-between rounded-xl bg-surface2/60 px-3 py-2.5">
-                  <div className="flex items-center gap-3">
-                    <span className={cn('flex h-10 w-10 items-center justify-center rounded-xl', h.type === 'redeemed' ? 'bg-rose-500/12 text-rose-500' : 'bg-emerald-500/12 text-emerald-600')}>
-                      {h.type === 'redeemed' ? <Gift className="h-5 w-5" /> : <Star className="h-5 w-5" />}
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold text-fg">{h.reason || h.meeting?.title || (h.type === 'earned' ? 'Event check-in' : h.type)}</p>
-                      <p className="text-xs text-subtle">{fmt(h.checkedInAt || h.createdAt)}</p>
-                    </div>
-                  </div>
-                  <span className={cn('text-base font-bold', h.type === 'redeemed' ? 'text-rose-500' : 'text-emerald-600')}>
-                    {h.type === 'redeemed' ? '-' : '+'}{h.pointsEarned}
-                  </span>
-                </div>
-              ))}
+            <Card className="mx-auto max-w-3xl"><CardContent className="p-2 sm:p-3">
+              <ul className="divide-y divide-border">
+                {history.map((h) => {
+                  const redeemed = h.type === 'redeemed';
+                  const waiting = h.type === 'held';
+                  const pts = Math.abs(h.pointsEarned ?? h.points ?? 0);
+                  return (
+                    <li key={h._id} className="flex items-center gap-3 px-3 py-3">
+                      <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', redeemed ? 'bg-danger/10 text-danger' : waiting ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success')}>
+                        {redeemed ? <Gift aria-hidden="true" className="h-5 w-5" /> : waiting ? <Hourglass aria-hidden="true" className="h-5 w-5" /> : <CalendarCheck aria-hidden="true" className="h-5 w-5" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-fg">{h.reason || h.meeting?.title || (h.type === 'earned' ? 'Event check-in' : h.type)}</p>
+                        <p className="text-xs text-subtle">{fmt(h.checkedInAt || h.createdAt)} · {redeemed ? 'Redeemed' : waiting ? 'Waiting for residency verification' : 'Earned'}</p>
+                      </div>
+                      <span className={cn('shrink-0 text-base font-bold tabular-nums', redeemed ? 'text-danger' : waiting ? 'text-warning' : 'text-success')}>
+                        {redeemed ? '−' : '+'}{pts}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
             </CardContent></Card>
           )
       )}
+
+      <Modal open={!!confirm} onClose={() => setConfirm(null)} title={`Redeem ${confirm?.title || ''}?`}
+        footer={<><Button variant="outline" onClick={() => setConfirm(null)}>Not now</Button>
+          <Button loading={redeemM.isPending} onClick={() => redeemM.mutate(confirm._id)}>Redeem for {confirm?.pointsRequired} pts</Button></>}>
+        <ul className="space-y-2 text-sm text-muted">
+          <li className="flex gap-2"><Star aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-accent" /> {confirm?.pointsRequired} points are deducted now — you'll have {balance - (confirm?.pointsRequired || 0)} left.</li>
+          <li className="flex gap-2"><Package aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> One item is set aside for you. Requests are served first come, first served.</li>
+          <li className="flex gap-2"><Ticket aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> Pick it up from an SK officer and show your code. Changed your mind? Cancel before pickup to get your points back.</li>
+        </ul>
+      </Modal>
     </div>
   );
 }

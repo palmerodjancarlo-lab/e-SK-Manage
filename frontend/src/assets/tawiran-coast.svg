@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <!-- Calm coastal morning over Marinduque: sea, Mt. Malindig in the distance, barangay on the hillside -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a3556"/>
+      <stop offset="0.5" stop-color="#4c7299"/>
+      <stop offset="0.85" stop-color="#a9c0d3"/>
+      <stop offset="1" stop-color="#e4dccb"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="1180" cy="548" r="340" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff3d6" stop-opacity="0.75"/>
+      <stop offset="0.35" stop-color="#f6e2b8" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#f6e2b8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f7699"/>
+      <stop offset="0.35" stop-color="#2c5479"/>
+      <stop offset="1" stop-color="#132f4c"/>
+    </linearGradient>
+    <linearGradient id="far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6d8cab"/>
+      <stop offset="1" stop-color="#86a2bb"/>
+    </linearGradient>
+    <linearGradient id="mid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#46698c"/>
+      <stop offset="1" stop-color="#557a9c"/>
+    </linearGradient>
+    <linearGradient id="near" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f4466"/>
+      <stop offset="1" stop-color="#0f2740"/>
+    </linearGradient>
+    <style>
+      /* Gentle ambient motion. Plays wherever the image is shown; off for "reduce motion". */
+      .clouds { animation: drift 38s ease-in-out infinite alternate; }
+      .clouds-far { animation: drift 52s ease-in-out infinite alternate-reverse; }
+      .glow { transform-origin: 1180px 548px; animation: glow 7s ease-in-out infinite; }
+      .shimmer rect { animation: shimmer 4.5s ease-in-out infinite; }
+      .shimmer rect:nth-child(2) { animation-delay: .6s; }
+      .shimmer rect:nth-child(3) { animation-delay: 1.2s; }
+      .shimmer rect:nth-child(4) { animation-delay: 1.8s; }
+      .shimmer rect:nth-child(5) { animation-delay: 2.4s; }
+      .boat { animation: bob 5s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .boat-2 { animation-duration: 6.5s; animation-delay: -2s; }
+      .palm { animation: sway 6s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 100%; }
+      @keyframes drift { from { transform: translateX(-40px); } to { transform: translateX(60px); } }
+      @keyframes glow { 0%, 100% { opacity: .85; transform: scale(1); } 50% { opacity: 1; transform: scale(1.06); } }
+      @keyframes shimmer { 0%, 100% { opacity: .15; } 50% { opacity: .6; } }
+      @keyframes bob { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(5px) rotate(-2deg); } }
+      @keyframes sway { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-2.5deg); } }
+      @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+    </style>
+  </defs>
+
+  <!-- sky -->
+  <rect width="1600" height="562" fill="url(#sky)"/>
+  <rect class="glow" width="1600" height="900" fill="url(#glow)"/>
+  <circle cx="1180" cy="540" r="34" fill="#fff6e2" opacity="0.9"/>
+
+  <!-- soft clouds -->
+  <g fill="#ffffff" opacity="0.14">
+    <g class="clouds">
+      <ellipse cx="980" cy="210" rx="190" ry="16"/>
+      <ellipse cx="1080" cy="196" rx="120" ry="12"/>
+    </g>
+    <g class="clouds-far">
+      <ellipse cx="1390" cy="290" rx="160" ry="13"/>
+      <ellipse cx="640" cy="320" rx="150" ry="10"/>
+    </g>
+  </g>
+
+  <!-- far range with Mt. Malindig -->
+  <path d="M560 562 C660 530 740 512 830 486 C910 462 970 462 1040 436 C1110 410 1170 398 1235 366 C1275 346 1305 334 1330 334 C1362 334 1398 356 1446 382 C1500 410 1555 428 1600 438 L1600 562 Z" fill="url(#far)"/>
+  <!-- middle hills -->
+  <path d="M780 562 C870 538 950 524 1040 510 C1130 496 1200 480 1280 466 C1360 452 1440 460 1520 480 C1556 489 1582 495 1600 499 L1600 562 Z" fill="url(#mid)"/>
+  <!-- small far island -->
+  <path d="M150 563 C200 549 262 545 318 552 C340 555 356 559 368 563 Z" fill="#6d8cab" opacity="0.8"/>
+
+  <!-- sea -->
+  <rect y="562" width="1600" height="338" fill="url(#sea)"/>
+  <g fill="#ffffff" class="shimmer">
+    <rect x="1120" y="572" width="120" height="2" rx="1" opacity="0.45"/>
+    <rect x="1095" y="586" width="170" height="2" rx="1" opacity="0.32"/>
+    <rect x="1070" y="603" width="210" height="2" rx="1" opacity="0.22"/>
+    <rect x="1040" y="624" width="260" height="2" rx="1" opacity="0.15"/>
+    <rect x="1010" y="650" width="300" height="2" rx="1" opacity="0.1"/>
+  </g>
+  <g fill="#ffffff" opacity="0.06">
+    <rect x="80" y="610" width="260" height="2" rx="1"/>
+    <rect x="420" y="640" width="320" height="2" rx="1"/>
+    <rect x="160" y="690" width="380" height="2" rx="1"/>
+    <rect x="640" y="720" width="300" height="2" rx="1"/>
+    <rect x="300" y="770" width="420" height="2" rx="1"/>
+  </g>
+
+  <!-- fishing boats -->
+  <g fill="#0f2740" opacity="0.7">
+    <g class="boat"><path d="M700 640 h44 l-7 7 h-30 z"/><rect x="719" y="626" width="2" height="14"/></g>
+    <g class="boat boat-2"><path d="M905 604 h30 l-5 5 h-20 z"/></g>
+  </g>
+
+  <!-- near hillside (barangay) -->
+  <path d="M960 900 C1040 820 1150 760 1280 732 C1380 712 1480 706 1600 708 L1600 900 Z" fill="url(#near)"/>
+  <path d="M0 900 L0 790 C110 790 240 812 360 846 C420 864 470 882 510 900 Z" fill="#0f2740"/>
+
+  <!-- houses and chapel on the hillside -->
+  <g fill="#0b2036">
+    <path d="M1250 742 l18 -14 l18 14 v20 h-36 z"/>
+    <path d="M1300 734 l16 -12 l16 12 v18 h-32 z"/>
+    <path d="M1196 762 l16 -12 l16 12 v18 h-32 z"/>
+    <path d="M1520 716 l18 -14 l18 14 v22 h-36 z"/>
+    <path d="M1478 722 l14 -11 l14 11 v16 h-28 z"/>
+    <!-- chapel -->
+    <rect x="1392" y="690" width="22" height="38"/>
+    <path d="M1392 690 q11 -18 22 0 z"/>
+    <rect x="1402" y="664" width="2" height="12"/>
+    <rect x="1398" y="668" width="10" height="2"/>
+    <path d="M1360 728 h80 v14 h-80 z"/>
+  </g>
+
+  <!-- palms -->
+  <g stroke="#0b2036" stroke-linecap="round" fill="none" class="palm">
+    <path d="M1130 800 C1128 770 1132 748 1142 726" stroke-width="4"/>
+    <path d="M1142 726 C1126 716 1110 716 1098 724 M1142 726 C1150 710 1164 704 1178 706 M1142 726 C1158 722 1172 728 1180 740 M1142 726 C1134 712 1122 704 1108 702" stroke-width="3"/>
+    <path d="M1570 712 C1568 690 1572 672 1580 656" stroke-width="3.5"/>
+    <path d="M1580 656 C1566 648 1552 648 1542 655 M1580 656 C1588 644 1600 640 1610 642 M1580 656 C1572 644 1562 638 1550 636" stroke-width="2.5"/>
+  </g>
+</svg>

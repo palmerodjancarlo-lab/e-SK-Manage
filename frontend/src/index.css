@@ -1,4 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+/* Atkinson Hyperlegible Next — designed for legibility (Braille Institute); variable 200–800.
+   Chosen via the UI UX Pro Max design system: design-system/e-sk-manage/MASTER.md */
+@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@200..800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -11,24 +13,33 @@
   --surface2: 241 245 249;  /* slate-100 */
   --border: 226 232 240;    /* slate-200 */
   --fg: 15 23 42;           /* slate-900 */
-  --muted: 71 85 105;       /* slate-600 */
-  --subtle: 148 163 184;    /* slate-400 */
+  --muted: 71 85 105;       /* slate-600 — 7.5:1 on white */
+  --subtle: 100 116 139;    /* slate-500 — 4.8:1 on white (was slate-400, failed AA) */
 
   /* brand */
-  --primary: 37 99 235;     /* SK blue   */
+  --brand: 15 39 64;        /* SK navy #0F2740 — identity surfaces */
+  --brand-fg: 255 255 255;
+  --sidebar: 15 39 64;      /* console sidebar — SK navy */
+  --sidebar-line: 255 255 255;
+  --gold: 251 191 36;       /* amber-400 — SK gold on navy (active marker, badges) */
+  --primary: 29 78 216;     /* blue-700 — actions & links, 6.7:1 on white */
   --primary-fg: 255 255 255;
-  --accent: 217 138 20;     /* SK gold   */
+  --accent: 180 83 9;       /* amber-700 — SK gold that still passes AA as text */
   --accent-fg: 255 255 255;
 
-  /* status */
-  --success: 22 163 74;
+  /* status — every tone readable as text on white (WCAG AA) */
+  --success: 21 128 61;     /* green-700 */
   --success-fg: 255 255 255;
-  --warning: 202 138 4;
+  --warning: 180 83 9;      /* amber-700 */
   --warning-fg: 255 255 255;
-  --danger: 197 43 43;
+  --danger: 185 28 28;      /* red-700 */
   --danger-fg: 255 255 255;
-  --info: 2 132 199;
+  --info: 3 105 161;        /* sky-700 */
   --info-fg: 255 255 255;
+
+  /* single-series chart marks — validated with the dataviz palette checker (light surface) */
+  --chart-1: 29 78 216;     /* blue-700 */
+  --chart-2: 235 104 52;    /* orange — pair passes CVD ΔE 30 vs chart-1 */
 }
 
 .dark {
@@ -37,8 +48,14 @@
   --surface2: 51 65 85;     /* slate-700 */
   --border: 51 65 85;       /* slate-700 */
   --fg: 241 245 249;        /* slate-100 */
-  --muted: 148 163 184;     /* slate-400 */
-  --subtle: 100 116 139;    /* slate-500 */
+  --muted: 203 213 225;     /* slate-300 */
+  --subtle: 148 163 184;    /* slate-400 */
+
+  --brand: 15 39 64;
+  --brand-fg: 255 255 255;
+  --sidebar: 11 18 32;      /* darker than the slate-900 page so the frame still reads */
+  --sidebar-line: 255 255 255;
+  --gold: 251 191 36;
 
   --primary: 96 165 250;    /* blue-400  */
   --primary-fg: 15 23 42;
@@ -53,6 +70,9 @@
   --danger-fg: 15 23 42;
   --info: 56 189 248;
   --info-fg: 15 23 42;
+
+  --chart-1: 59 130 246;    /* blue-500 — blue-400 fails the dark lightness band for marks */
+  --chart-2: 217 89 38;
 }
 
 @layer base {
@@ -62,12 +82,23 @@
   html {
     -webkit-text-size-adjust: 100%;
   }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
   body {
     @apply bg-bg text-fg font-sans antialiased;
   }
-  /* nicer default focus ring for keyboard users */
+  /* Visible focus for keyboard users on every control (WCAG 2.4.7) */
   :focus-visible {
-    @apply outline-none ring-2 ring-primary/50;
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-bg;
+  }
+  /* Respect "reduce motion": no decorative animation or transitions */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -79,7 +110,7 @@
     @apply block text-sm font-medium text-muted mb-1.5;
   }
   .input {
-    @apply w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm text-fg
+    @apply w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-base text-fg sm:text-sm
            placeholder:text-subtle transition
            focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30;
   }
@@ -88,7 +119,7 @@
            transition disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-primary {
-    @apply btn bg-primary text-primary-fg shadow-card hover:brightness-95 active:brightness-90;
+    @apply btn bg-primary text-primary-fg hover:brightness-95 active:brightness-90;
   }
   .btn-ghost {
     @apply btn bg-surface2 text-fg hover:bg-border;
@@ -96,8 +127,32 @@
   .btn-danger {
     @apply btn bg-danger text-danger-fg hover:brightness-95 active:brightness-90;
   }
+  /* <Reveal>: content eases in the first time it scrolls into view */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s ease, transform .7s cubic-bezier(.2,.7,.2,1); }
+  .reveal.is-visible { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; } }
+
+  /* <Table stack>: below `sm` each row becomes a card of "Label  value" lines */
+  @media (max-width: 639px) {
+    .table-stack thead { @apply sr-only; }
+    .table-stack tbody { @apply divide-y-0; }
+    .table-stack tr { @apply block border-b border-border px-4 py-3 last:border-b-0; }
+    /* label in the left column, every line of the value stacked in the right one */
+    .table-stack td { @apply grid gap-x-4 gap-y-0.5 px-0 py-1.5 text-right; grid-template-columns: minmax(5.5rem, max-content) minmax(0, 1fr); }
+    .table-stack td > * { grid-column: 2; justify-self: end; }
+    .table-stack td[data-label]::before {
+      content: attr(data-label);
+      grid-row: 1 / span 6;
+      @apply pt-0.5 text-left text-xs font-semibold uppercase tracking-wide text-muted;
+    }
+    .table-stack td:not([data-label]) { @apply flex justify-end; }
+  }
   .chip {
     @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-surface2
            px-2.5 py-1 text-xs font-medium text-muted;
   }
 }
+/* Thin, low-contrast scrollbar for the navy sidebar */
+.sidebar-scroll { scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.18) transparent; }
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.18); border-radius: 9999px; }

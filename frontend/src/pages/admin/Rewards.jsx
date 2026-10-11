@@ -6,7 +6,9 @@ import api from '../../lib/api';
 import {
   PageHeader, Card, CardContent, CardHeader, CardTitle, Spinner, Badge, Button,
   Input, Textarea, Select, Modal, EmptyState, Avatar,
+  IconButton,
 } from '../../components/ui';
+import RedemptionQueue from '../../components/rewards/RedemptionQueue';
 
 export default function Rewards() {
   const qc = useQueryClient();
@@ -29,6 +31,8 @@ export default function Rewards() {
       <PageHeader title="Rewards & Points" description="Manage the rewards catalog and award points to kabataan."
         actions={<Button onClick={() => setModal({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New reward</Button>} />
 
+      <RedemptionQueue />
+
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Rewards catalog */}
         <div className="lg:col-span-2">
@@ -49,8 +53,8 @@ export default function Rewards() {
                       {r.description && <p className="mt-1 line-clamp-2 text-sm text-muted">{r.description}</p>}
                       <p className="mt-1 text-xs text-subtle">{r.stock === -1 ? 'Unlimited stock' : `${r.stock} in stock`}</p>
                       <div className="mt-3 flex gap-1.5">
-                        <Button size="sm" variant="ghost" onClick={() => setModal({ mode: 'edit', data: r })}><Pencil className="h-4 w-4" /></Button>
-                        <Button size="sm" variant="ghost" className="text-danger hover:bg-danger/10" onClick={() => setDel(r)}><Trash2 className="h-4 w-4" /></Button>
+                        <IconButton icon={Pencil} label={`Edit reward “${r.title}”`} onClick={() => setModal({ mode: 'edit', data: r })} />
+                        <IconButton icon={Trash2} label={`Delete reward “${r.title}”`} tone="danger" onClick={() => setDel(r)} />
                       </div>
                     </CardContent>
                   </Card>

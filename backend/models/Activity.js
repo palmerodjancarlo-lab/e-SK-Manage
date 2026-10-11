@@ -49,14 +49,14 @@ const activitySchema = new mongoose.Schema({
   notes:     { type:String },
 }, { timestamps:true })
 
-// Auto-compute totalDays and totalPoints before save
-activitySchema.pre('save', function(next) {
+// Auto-compute totalDays and totalPoints before save.
+// (Mongoose 9 no longer passes next() to middleware — a next-style hook makes every save throw.)
+activitySchema.pre('save', function() {
   if (this.startDate && this.endDate) {
     const diff = (this.endDate - this.startDate) / (1000 * 60 * 60 * 24)
     this.totalDays = Math.max(1, Math.round(diff) + 1)
   }
-  this.totalPoints = this.pointsPerDay * this.totalDays
-  next()
+  this.totalPoints = (this.pointsPerDay || 0) * this.totalDays
 })
 
 module.exports = mongoose.model('Activity', activitySchema)

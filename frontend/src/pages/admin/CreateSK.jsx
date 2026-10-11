@@ -1,7 +1,7 @@
 // src/pages/admin/CreateSK.jsx — Head creates SK official accounts (single or bulk upload)
 // cspell:words kagawad Tawiran councilor councillor pdfjs
 import { useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import {
@@ -9,8 +9,9 @@ import {
   Trash2, FileSpreadsheet, Users, CheckCircle2, AlertCircle, Plus,
 } from 'lucide-react';
 import api from '../../lib/api';
-import { Card, CardContent, Button } from '../../components/ui';
+import { Card, CardContent, Button, PageHeader } from '../../components/ui';
 import { cn } from '../../lib/utils';
+import { pdfToLines } from '../../lib/pdfText';
 
 const ROLES = [
   { value: 'sk_chairperson', label: 'SK Chairperson', note: 'Head of the council', single: true },
@@ -19,7 +20,6 @@ const ROLES = [
   { value: 'sk_kagawad', label: 'SK Kagawad', note: 'Council member', single: false },
 ];
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.value, r.label]));
-const DEFAULT_PW = 'SKManage2026';
 
 const inputCls =
   'w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-fg outline-none transition placeholder:text-subtle focus:border-primary focus:ring-2 focus:ring-primary/20';
@@ -49,7 +49,7 @@ function roleFromText(t) {
   return 'sk_kagawad';
 }
 function makeRow(first, last, email, role, contact = '', address = '') {
-  return { id: uid(), firstName: first || '', lastName: last || '', email: String(email || '').trim(), role: role || 'sk_kagawad', contactNumber: contact || '', address: address || '', position: '', password: DEFAULT_PW };
+  return { id: uid(), firstName: first || '', lastName: last || '', email: String(email || '').trim(), role: role || 'sk_kagawad', contactNumber: contact || '', address: address || '', position: '', password: '' };
 }
 function mapObjRow(obj) {
   let first = pick(obj, ['firstname', 'first', 'givenname', 'fname']);
@@ -69,24 +69,7 @@ async function parseWorkbook(file) {
   return json.map(mapObjRow).filter((r) => r.firstName || r.lastName || r.email);
 }
 async function parsePdf(file) {
-  const pdfjs = await import('pdfjs-dist');
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
-  const buf = await file.arrayBuffer();
-  const doc = await pdfjs.getDocument({ data: buf }).promise;
-  const lines = [];
-  for (let p = 1; p <= doc.numPages; p++) {
-    const page = await doc.getPage(p);
-    const tc = await page.getTextContent();
-    const byY = {};
-    for (const it of tc.items) {
-      const y = Math.round(it.transform[5]);
-      (byY[y] = byY[y] || []).push({ x: it.transform[4], s: it.str });
-    }
-    Object.keys(byY).map(Number).sort((a, b) => b - a).forEach((y) => {
-      const line = byY[y].sort((a, b) => a.x - b.x).map((o) => o.s).join(' ').replace(/\s+/g, ' ').trim();
-      if (line) lines.push(line);
-    });
-  }
+  const lines = await pdfToLines(file);
   const rows = [];
   for (const line of lines) {
     const emailMatch = line.match(/\S+@\S+\.\S+/);
@@ -183,7 +166,7 @@ function BulkUpload() {
     const payload = rows.map((r) => ({
       firstName: r.firstName.trim(), lastName: r.lastName.trim(),
       email: r.email.trim().toLowerCase(), role: r.role,
-      password: r.password || DEFAULT_PW, position: r.position, contactNumber: r.contactNumber, address: r.address,
+      password: r.password || undefined, position: r.position, contactNumber: r.contactNumber, address: r.address,
     }));
     createM.mutate(payload);
   };
@@ -243,7 +226,7 @@ function BulkUpload() {
                             {ROLES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                           </select>
                         </td>
-                        <td className="px-2 py-1.5"><input className={cellCls} value={r.password} onChange={(e) => setCell(r.id, 'password', e.target.value)} /></td>
+                        <td className="px-2 py-1.5"><input className={cellCls} value={r.password} placeholder="Auto" aria-label={`Temporary password for ${r.email || 'row'}`} onChange={(e) => setCell(r.id, 'password', e.target.value)} /></td>
                         <td className="px-2 py-1.5 text-right">
                           <button onClick={() => removeRow(r.id)} className="rounded-lg p-1.5 text-subtle hover:bg-danger/10 hover:text-danger" title="Remove"><Trash2 className="h-4 w-4" /></button>
                         </td>
@@ -273,10 +256,21 @@ function BulkUpload() {
             <p className="flex items-center gap-2 text-sm font-bold text-fg">
               <CheckCircle2 className="h-4 w-4 text-success" /> {result.summary?.created || 0} created · {result.summary?.skipped || 0} skipped
             </p>
-            {(result.created || []).length > 0 && (
-              <p className="text-xs text-muted">
-                Created with temp password <span className="font-bold text-fg">{DEFAULT_PW}</span> — officers should change it in Settings.
-              </p>
+            {(result.created || []).some((c) => c.tempPassword) && (
+              <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-fg">Temporary passwords — shown only now. Give each officer theirs; they change it in Settings.</p>
+                  <Button variant="outline" size="sm" onClick={() => {
+                    const text = result.created.filter((c) => c.tempPassword).map((c) => `${c.email}\t${c.tempPassword}`).join('\n');
+                    navigator.clipboard?.writeText(text).then(() => toast.success('Copied.'), () => toast.error('Could not copy.'));
+                  }}>Copy all</Button>
+                </div>
+                <ul className="space-y-1 text-xs">
+                  {result.created.filter((c) => c.tempPassword).map((c) => (
+                    <li key={c._id} className="flex flex-wrap justify-between gap-2"><span className="text-muted">{c.email}</span><code className="font-mono font-bold text-fg">{c.tempPassword}</code></li>
+                  ))}
+                </ul>
+              </div>
             )}
             {(result.skipped || []).length > 0 && (
               <ul className="space-y-1">
@@ -306,6 +300,9 @@ function SingleCreate() {
   const [form, setForm] = useState(emptySingle);
   const [showPw, setShowPw] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  // Chairperson, Secretary and Treasurer can only be held by one person
+  const usersQ = useQuery({ queryKey: ['admin-users'], queryFn: async () => (await api.get('/admin/users')).data.users });
+  const holder = (role) => (usersQ.data || []).find((u) => u.role === role && u.isActive !== false);
 
   const createM = useMutation({
     mutationFn: (payload) => api.post('/admin/create-sk', payload),
@@ -335,16 +332,17 @@ function SingleCreate() {
             <div className="grid gap-2 sm:grid-cols-2">
               {ROLES.map((r) => {
                 const active = form.role === r.value;
+                const taken = r.single ? holder(r.value) : null;
                 return (
-                  <button type="button" key={r.value} onClick={() => setForm((f) => ({ ...f, role: r.value }))}
-                    className={cn('flex items-start gap-3 rounded-xl border p-3 text-left transition',
+                  <button type="button" key={r.value} disabled={!!taken} aria-pressed={active} onClick={() => setForm((f) => ({ ...f, role: r.value }))}
+                    className={cn('flex items-start gap-3 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:bg-surface2/60 disabled:opacity-70',
                       active ? 'border-primary bg-primary/5 ring-2 ring-primary/20' : 'border-border hover:bg-surface2')}>
                     <span className={cn('mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border', active ? 'border-primary bg-primary text-primary-fg' : 'border-border')}>
                       {active && <ShieldCheck className="h-3 w-3" />}
                     </span>
                     <span className="min-w-0">
                       <span className="block text-sm font-bold text-fg">{r.label}</span>
-                      <span className="block text-xs text-muted">{r.note}{r.single ? ' · only one allowed' : ''}</span>
+                      <span className="block text-xs text-muted">{taken ? `Already filled by ${taken.firstName} ${taken.lastName}` : `${r.note}${r.single ? ' · only one allowed' : ''}`}</span>
                     </span>
                   </button>
                 );
@@ -398,13 +396,8 @@ export default function CreateSKAccount() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
-      <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/12 text-primary"><UserPlus className="h-5 w-5" /></span>
-        <div>
-          <h2 className="text-xl font-extrabold text-fg">Create SK official account</h2>
-          <p className="text-sm text-muted">SK officials can't self-register — you create their logins here.</p>
-        </div>
-      </div>
+      <PageHeader className="mb-0" title="Add SK Officer"
+        description="SK officials can’t self-register — create their sign-in accounts here, one at a time or in bulk." />
 
       <div className="inline-flex rounded-xl bg-surface2 p-1">
         {[{ k: 'single', label: 'One at a time' }, { k: 'bulk', label: 'Bulk upload' }].map((t) => (

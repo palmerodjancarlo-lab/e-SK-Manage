@@ -2,6 +2,7 @@
 // Public (no-login) data for the landing page. Read-only. NEVER exposes any
 // financial figures — only what the barangay youth may see openly.
 const Meeting = require('../models/Meeting')
+const serverError = require('../utils/serverError')
 const Program = require('../models/Program')
 let Announcement = null
 try { Announcement = require('../models/Announcement') } catch (e) { Announcement = null }
@@ -18,7 +19,7 @@ const getPublicOverview = async (req, res) => {
         : Promise.resolve([]),
       settle(Meeting.find({ date: { $gte: now } }).sort({ date: 1 }).limit(4)
         .select('title type date venue time').lean()),
-      settle(Program.find({ status: { $in: ['ongoing', 'completed'] } })
+      settle(Program.find({ status: { $in: ['ongoing', 'completed'] }, showToKabataan: { $ne: false } })
         .sort({ updatedAt: -1 }).limit(6)
         .select('title category status startDate endDate photos').lean()),
     ])
@@ -42,7 +43,7 @@ const getPublicOverview = async (req, res) => {
       })),
     })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 

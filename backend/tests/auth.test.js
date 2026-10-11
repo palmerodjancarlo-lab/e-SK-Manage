@@ -6,13 +6,18 @@
 // Test:    Auth Controller — register, login, profile, password, delete account
 // ============================================================
 
+require('./setup')
 const httpMocks = require('node-mocks-http')
 
 jest.mock('../models/User')
 jest.mock('../models/AuditLog')
+jest.mock('../utils/sendEmail')
+jest.mock('../utils/cleanupUser', () => jest.fn().mockResolvedValue())
 
 const User     = require('../models/User')
 const AuditLog = require('../models/AuditLog')
+const { sendVerificationEmail } = require('../utils/sendEmail')
+const cleanupUser = require('../utils/cleanupUser')
 
 const {
   register, login, getProfile,
@@ -34,9 +39,9 @@ const fakeUser = (overrides = {}) => ({
   firstName:     'Dianne',
   lastName:      'Mantala',
   email:         'dianne@eskmanage.com',
-  role:          'kabataan_user',
-  municipality:  'Boac',
-  barangay:      'Agot',
+  role:          'kabataan',
+  municipality:  'Santa Cruz',
+  barangay:      'Tawiran',
   isActive:      true,
   isVerified:    true,
   points:        0,
@@ -49,65 +54,66 @@ const fakeUser = (overrides = {}) => ({
 beforeEach(() => {
   jest.clearAllMocks()
   AuditLog.create = jest.fn().mockResolvedValue({})
+  sendVerificationEmail.mockResolvedValue()
 })
 
 // ── REGISTER ──────────────────────────────────────────────────────────────────
 
 describe('register', () => {
+  // A valid Tawiran registration (age 20)
+  const valid = (over = {}) => ({
+    firstName:'Mhervin', lastName:'Mabuti', email:'Mhervin@ESKmanage.com', password:'pass123',
+    purok:'Purok 2', address:'Purok 2, Barangay Tawiran', sex:'Male',
+    birthDate: new Date(Date.now() - 20 * 365.25 * 864e5).toISOString().slice(0, 10),
+    ...over,
+  })
 
   test('returns 400 if required fields are missing', async () => {
-    const req = makeReq({ email: 'incomplete@eskmanage.com' })
     const res = makeRes()
-    await register(req, res)
+    await register(makeReq({ email: 'incomplete@eskmanage.com' }), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(res._json.message).toMatch(/required/i)
   })
 
+  test('requires purok and complete address in Tawiran', async () => {
+    const res = makeRes()
+    await register(makeReq(valid({ purok:'' })), res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res._json.message).toMatch(/purok/i)
+  })
+
+  test('only accepts ages 15 to 30', async () => {
+    const res = makeRes()
+    await register(makeReq(valid({ birthDate: new Date(Date.now() - 35 * 365.25 * 864e5).toISOString().slice(0, 10) })), res)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(res._json.message).toMatch(/15 to 30/)
+  })
+
   test('returns 400 if email already exists', async () => {
     User.findOne = jest.fn().mockResolvedValue(fakeUser())
-    const req = makeReq({ firstName:'Angel', lastName:'Dela Torre', email:'angel@eskmanage.com', password:'pass123' })
     const res = makeRes()
-    await register(req, res)
+    await register(makeReq(valid()), res)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(res._json.message).toMatch(/already registered/i)
   })
 
-  test('creates kabataan_user successfully', async () => {
+  test('creates an unverified kabataan account and emails the code', async () => {
     User.findOne = jest.fn().mockResolvedValue(null)
-    User.create  = jest.fn().mockResolvedValue(fakeUser({ email:'mhervin@eskmanage.com' }))
-    const req = makeReq({ firstName:'Mhervin', lastName:'Mabuti', email:'mhervin@eskmanage.com', password:'pass123', municipality:'Boac', barangay:'Agot' })
+    User.create  = jest.fn().mockImplementation(async (d) => fakeUser({ ...d, _id:'64abc777' }))
     const res = makeRes()
-    await register(req, res)
+    await register(makeReq(valid()), res)
     expect(res.status).toHaveBeenCalledWith(201)
-    expect(res._json.user.email).toBe('mhervin@eskmanage.com')
+    expect(res._json.needsVerification).toBe(true)
+    expect(User.create).toHaveBeenCalledWith(expect.objectContaining({ email:'mhervin@eskmanage.com', isVerified:false }))
+    expect(sendVerificationEmail).toHaveBeenCalledWith('mhervin@eskmanage.com', 'Mhervin', expect.stringMatching(/^\d{6}$/))
   })
 
-  test('always forces role to kabataan_user', async () => {
+  test('always forces role to kabataan', async () => {
     User.findOne = jest.fn().mockResolvedValue(null)
-    let createdData = null
-    User.create = jest.fn().mockImplementation((data) => {
-      createdData = data
-      return Promise.resolve(fakeUser(data))
-    })
-    const req = makeReq({ firstName:'Joyzel', lastName:'Saguid', email:'joyzel@eskmanage.com', password:'pass', role:'admin' })
+    User.create  = jest.fn().mockImplementation(async (d) => fakeUser(d))
     const res = makeRes()
-    await register(req, res)
-    expect(createdData.role).toBe('kabataan_user')
-  })
-
-  test('saves SK application when isApplyingSK is true', async () => {
-    User.findOne = jest.fn().mockResolvedValue(null)
-    let createdData = null
-    User.create = jest.fn().mockImplementation((data) => {
-      createdData = data
-      return Promise.resolve(fakeUser({ ...data, skApplication:{ isApplying:true, status:'pending' } }))
-    })
-    const req = makeReq({ firstName:'Dianne', lastName:'Mantala', email:'dianne.sk@eskmanage.com', password:'pass123', isApplyingSK:true, appliedPosition:'SK Chairperson', proofDescription:'I was elected as SK Chairperson of Brgy. Agot, Boac.' })
-    const res = makeRes()
-    await register(req, res)
-    expect(createdData.skApplication.isApplying).toBe(true)
-    expect(createdData.skApplication.status).toBe('pending')
-    expect(res._json.hasSKApplication).toBe(true)
+    await register(makeReq(valid({ role:'sk_chairperson' })), res)
+    expect(User.create.mock.calls[0][0].role).toBe('kabataan')
   })
 })
 
@@ -265,8 +271,8 @@ describe('deleteAccount', () => {
     expect(res.status).toHaveBeenCalledWith(400)
   })
 
-  test('returns 403 if user is admin', async () => {
-    const admin = fakeUser({ role:'admin' })
+  test('returns 403 for SK officials (they cannot self-delete)', async () => {
+    const admin = fakeUser({ role:'sk_chairperson' })
     admin.matchPassword = jest.fn().mockResolvedValue(true)
     // Real controller uses .select('+password') — must chain .select()
     User.findById = jest.fn().mockReturnValue({
@@ -302,6 +308,7 @@ describe('deleteAccount', () => {
     const res = makeRes()
     await deleteAccount(req, res)
     expect(User.findByIdAndDelete).toHaveBeenCalledWith(user._id)
+    expect(cleanupUser).toHaveBeenCalledWith(user._id) // frees reward stock and event slots
     expect(res._json.message).toMatch(/deleted/i)
   })
 })

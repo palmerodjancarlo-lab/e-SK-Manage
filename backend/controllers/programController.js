@@ -3,6 +3,7 @@
 // Budget rolls up: Activity actualCost → Project totalActivityCost → Program totalProjectCost
 
 const Program = require('../models/Program')
+const serverError = require('../utils/serverError')
 const Project = require('../models/Project')
 const Activity = require('../models/Activity')
 const Points = require('../models/Points')
@@ -30,15 +31,26 @@ const syncProgramCost = async (programId) => {
 
 // ── PROGRAMS ──────────────────────────────────────────────────────────────────
 
+const pick = require('../utils/pick')
+const PROJECT_EDITABLE = ['title', 'description', 'status', 'startDate', 'endDate', 'adjustedEndDate',
+  'coordinator', 'allocatedBudget', 'completionReport', 'notes']
+const ACTIVITY_EDITABLE = ['title', 'description', 'type', 'status', 'startDate', 'endDate', 'venue',
+  'estimatedCost', 'actualCost', 'pointsPerDay', 'notes']
+
+// Programs the SK has published to kabataan (missing flag = published, for older records)
+const VISIBLE = { showToKabataan: { $ne: false } }
+
 // GET /api/programs
 const getPrograms = async (req, res) => {
   try {
-    const programs = await Program.find()
+    const programs = await Program.find(req.user?.role === 'kabataan' ? VISIBLE : {})
       .populate('organizer', 'firstName lastName position')
+      .populate('progressUpdates.postedBy', 'firstName lastName role')
+      .populate('documents.uploadedBy', 'firstName lastName role')
       .sort({ createdAt: -1 })
     res.json({ programs })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -47,14 +59,16 @@ const getProgram = async (req, res) => {
   try {
     const program = await Program.findById(req.params.id)
       .populate('organizer', 'firstName lastName position')
-    if (!program) return res.status(404).json({ message: 'Program not found' })
+    if (!program || (req.user?.role === 'kabataan' && program.showToKabataan === false)) {
+      return res.status(404).json({ message: 'Program not found' })
+    }
 
     const projects = await Project.find({ program: program._id })
       .populate('coordinator', 'firstName lastName')
 
     res.json({ program, projects })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -65,6 +79,7 @@ const createProgram = async (req, res) => {
       title, description, category, status, startDate, endDate, municipality, barangay, fundSources, notes,
       fiscalYear, area, referenceCode, centerOfParticipation, objective, performanceIndicator,
       expectedResults, dateOfImplementation, personResponsible, targets, budget,
+      targetBeneficiaries, beneficiaryCount, showToKabataan,
     } = req.body
     if (!title) return res.status(400).json({ message: 'Program title is required.' })
 
@@ -79,6 +94,8 @@ const createProgram = async (req, res) => {
       totalBudget, organizer: req.user._id, notes,
       fiscalYear, area, referenceCode, centerOfParticipation, objective, performanceIndicator,
       expectedResults, dateOfImplementation, personResponsible,
+      targetBeneficiaries, beneficiaryCount: beneficiaryCount === '' ? null : beneficiaryCount,
+      showToKabataan: showToKabataan !== false,
       targets: targets || {},
       budget: { mooe: b.mooe || 0, personnelServices: b.personnelServices || 0, capitalOutlay: b.capitalOutlay || 0 },
     })
@@ -110,15 +127,18 @@ const createProgram = async (req, res) => {
     await AuditLog.create({ user: req.user._id, action: 'CREATE_PROGRAM', details: `Created Program: ${title}` })
     res.status(201).json({ message: 'Program created.', program })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
 // PUT /api/programs/:id
 const updateProgram = async (req, res) => {
   try {
-    const { fundSources, budget, ...rest } = req.body
+    // Progress updates, documents and photos have their own endpoints; organizer is fixed
+    // eslint-disable-next-line no-unused-vars
+    const { fundSources, budget, progressUpdates, documents, organizer, photos, ...rest } = req.body
     let update = { ...rest }
+    if (update.beneficiaryCount === '') update.beneficiaryCount = null
 
     if (budget) update.budget = budget
 
@@ -146,7 +166,7 @@ const updateProgram = async (req, res) => {
     await AuditLog.create({ user: req.user._id, action: 'UPDATE_PROGRAM', details: `Updated Program: ${program.title}` })
     res.json({ message: 'Program updated.', program })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -157,10 +177,15 @@ const deleteProgram = async (req, res) => {
     const program = await Program.findByIdAndDelete(req.params.id)
     if (!program) return res.status(404).json({ message: 'Program not found' })
     await Announcement.deleteMany({ sourceType: 'program', sourceId: req.params.id }).catch(() => {})
-    await AuditLog.create({ user: req.user._id, action: 'DELETE_PROGRAM', details: `Deleted Program: ${program.title}` })
+    // Its projects and activities go with it (expenses stay — they're the money trail)
+    const [acts, projs] = await Promise.all([
+      Activity.deleteMany({ program: program._id }),
+      Project.deleteMany({ program: program._id }),
+    ])
+    await AuditLog.create({ user: req.user._id, action: 'DELETE_PROGRAM', details: `Deleted Program: ${program.title} (with ${projs.deletedCount || 0} project(s), ${acts.deletedCount || 0} activit${acts.deletedCount === 1 ? 'y' : 'ies'})` })
     res.json({ message: 'Program deleted.' })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -175,7 +200,7 @@ const getProjects = async (req, res) => {
       .sort({ createdAt: -1 })
     res.json({ projects })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -197,14 +222,14 @@ const createProject = async (req, res) => {
     await AuditLog.create({ user: req.user._id, action: 'CREATE_PROJECT', details: `Created Project: ${title} under Program: ${program.title}` })
     res.status(201).json({ message: 'Project created.', project })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
 // PUT /api/projects/:id
 const updateProject = async (req, res) => {
   try {
-    const project = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const project = await Project.findByIdAndUpdate(req.params.id, pick(req.body, PROJECT_EDITABLE), { new: true, runValidators: true })
     if (!project) return res.status(404).json({ message: 'Project not found' })
 
     await syncProgramCost(project.program)
@@ -212,7 +237,7 @@ const updateProject = async (req, res) => {
     await AuditLog.create({ user: req.user._id, action: 'UPDATE_PROJECT', details: `Updated Project: ${project.title}` })
     res.json({ message: 'Project updated.', project })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -221,11 +246,12 @@ const deleteProject = async (req, res) => {
   try {
     const project = await Project.findByIdAndDelete(req.params.id)
     if (!project) return res.status(404).json({ message: 'Project not found' })
+    await Activity.deleteMany({ project: project._id })
     await syncProgramCost(project.program)
     await AuditLog.create({ user: req.user._id, action: 'DELETE_PROJECT', details: `Deleted Project: ${project.title}` })
     res.json({ message: 'Project deleted.' })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -239,7 +265,7 @@ const getActivities = async (req, res) => {
       .sort({ startDate: 1 })
     res.json({ activities })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -267,14 +293,34 @@ const createActivity = async (req, res) => {
     await AuditLog.create({ user: req.user._id, action: 'CREATE_ACTIVITY', details: `Created Activity: ${title} under Project: ${project.title}` })
     res.status(201).json({ message: 'Activity created.', activity })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
+  }
+}
+
+// DELETE /api/programs/activities/:id  (points already earned stay in members' history)
+const deleteActivity = async (req, res) => {
+  try {
+    const activity = await Activity.findByIdAndDelete(req.params.id)
+    if (!activity) return res.status(404).json({ message: 'Activity not found' })
+    await syncProjectCost(activity.project)
+    const project = await Project.findById(activity.project)
+    if (project) await syncProgramCost(project.program)
+    await AuditLog.create({ user: req.user._id, action: 'DELETE_ACTIVITY', details: `Deleted Activity: ${activity.title}` })
+    res.json({ message: 'Activity deleted.' })
+  } catch (error) {
+    serverError(res, error)
   }
 }
 
 // PUT /api/activities/:id
 const updateActivity = async (req, res) => {
   try {
-    const activity = await Activity.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    // findById + save so the pre-save hook recomputes totalDays / totalPoints
+    const activity = await Activity.findById(req.params.id)
+    if (activity) {
+      Object.assign(activity, pick(req.body, ACTIVITY_EDITABLE))
+      await activity.save()
+    }
     if (!activity) return res.status(404).json({ message: 'Activity not found' })
 
     await syncProjectCost(activity.project)
@@ -284,7 +330,7 @@ const updateActivity = async (req, res) => {
     await AuditLog.create({ user: req.user._id, action: 'UPDATE_ACTIVITY', details: `Updated Activity: ${activity.title}` })
     res.json({ message: 'Activity updated.', activity })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -294,18 +340,24 @@ const updateActivity = async (req, res) => {
 // Record attendance for a kabataan — points are prorated AND priority-adjusted
 const recordAttendance = async (req, res) => {
   try {
-    const { userId, daysAttended } = req.body
-    if (!userId || daysAttended === undefined) return res.status(400).json({ message: 'userId and daysAttended are required.' })
+    const userId = typeof req.body.userId === 'string' ? req.body.userId : ''
+    const daysAttended = Number(req.body.daysAttended)
+    if (!userId || !Number.isInteger(daysAttended) || daysAttended < 0) {
+      return res.status(400).json({ message: 'Choose a member and enter the number of days attended.' })
+    }
 
     const activity = await Activity.findById(req.params.id)
     if (!activity) return res.status(404).json({ message: 'Activity not found' })
     if (daysAttended > activity.totalDays) return res.status(400).json({ message: `Cannot exceed total days (${activity.totalDays}).` })
 
-    // The member receiving points — must be an eligible (verified, active) kabataan
+    // The member must be an active kabataan. Attendance counts either way; if their
+    // residency isn't verified yet the points are held and released on verification.
     const member = await User.findById(userId)
     if (!member) return res.status(404).json({ message: 'Member not found.' })
     const elig = pointsEligibility(member)
-    if (!elig.eligible) return res.status(400).json({ message: elig.reason })
+    const unverifiedMember = member.role === 'kabataan' && member.isActive !== false && !member.idVerified
+    if (!elig.eligible && !unverifiedMember) return res.status(400).json({ message: elig.reason })
+    const held = !elig.eligible
 
     // Base prorated points, then the PWD / age-bracket priority bonus
     const basePoints = activity.totalDays > 0
@@ -319,19 +371,31 @@ const recordAttendance = async (req, res) => {
 
     const existing = activity.attendance.find(a => a.user.toString() === userId)
     if (existing) {
-      const oldPoints = existing.pointsEarned
       existing.daysAttended = daysAttended
       existing.pointsEarned = finalPoints
       existing.recordedBy = req.user._id
       existing.recordedAt = new Date()
       await activity.save()
 
-      const diff = finalPoints - oldPoints
-      await User.findByIdAndUpdate(userId, { $inc: { points: diff } })
+      // Keep the points ledger (source of truth for balances) in step with the edit.
+      // Points already counted stay counted; otherwise they're held while unverified.
+      // A ledger row needs at least 1 point, so 0 points means no row.
+      const row = await Points.findOne({ user: userId, activity: activity._id, type: { $in: ['earned', 'held'] } })
+      const wasCounted = row?.type === 'earned'
+      const nowCounted = wasCounted || !held
+      const diff = (nowCounted ? finalPoints : 0) - (wasCounted ? row.pointsEarned : 0)
+      if (diff) await User.findByIdAndUpdate(userId, { $inc: { points: diff } })
+      if (finalPoints > 0) {
+        await Points.findOneAndUpdate(
+          { user: userId, activity: activity._id, type: { $in: ['earned', 'held'] } },
+          { pointsEarned: finalPoints, reason, type: nowCounted ? 'earned' : 'held' },
+          { upsert: true, setDefaultsOnInsert: true },
+        )
+      } else if (row) await Points.deleteOne({ _id: row._id })
 
       return res.json({
         message: 'Attendance updated.',
-        pointsEarned: finalPoints, basePoints,
+        pointsEarned: finalPoints, basePoints, pointsHeld: held && !wasCounted,
         bonusApplied: applied.map(a => a.label),
         daysAttended,
       })
@@ -340,29 +404,31 @@ const recordAttendance = async (req, res) => {
     activity.attendance.push({ user: userId, daysAttended, pointsEarned: finalPoints, recordedBy: req.user._id })
     await activity.save()
 
-    await User.findByIdAndUpdate(userId, { $inc: { points: finalPoints } })
+    if (!held) await User.findByIdAndUpdate(userId, { $inc: { points: finalPoints } })
 
-    await Points.create({
-      user: userId,
-      activity: activity._id,
-      pointsEarned: finalPoints, type: 'earned',
-      reason,
-    })
+    if (finalPoints > 0) {
+      await Points.create({
+        user: userId,
+        activity: activity._id,
+        pointsEarned: finalPoints, type: held ? 'held' : 'earned',
+        reason,
+      })
+    }
 
     await AuditLog.create({
       user: req.user._id,
       action: 'RECORD_ATTENDANCE',
-      details: `Recorded attendance for activity: ${activity.title} — ${member.firstName} ${member.lastName} earned ${finalPoints} points (${daysAttended}/${activity.totalDays} days${applied.length ? ', priority bonus applied' : ''})`,
+      details: `Recorded attendance for activity: ${activity.title} — ${member.firstName} ${member.lastName} earned ${finalPoints} points (${daysAttended}/${activity.totalDays} days${applied.length ? ', priority bonus applied' : ''}${held && finalPoints ? ', held until residency is verified' : ''})`,
     })
 
     res.status(201).json({
       message: 'Attendance recorded.',
-      pointsEarned: finalPoints, basePoints,
+      pointsEarned: finalPoints, basePoints, pointsHeld: held && finalPoints > 0,
       bonusApplied: applied.map(a => a.label),
       daysAttended, totalDays: activity.totalDays,
     })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -370,11 +436,23 @@ const recordAttendance = async (req, res) => {
 const getAttendance = async (req, res) => {
   try {
     const activity = await Activity.findById(req.params.id)
-      .populate('attendance.user', 'firstName lastName barangay')
+      .populate('attendance.user', 'firstName lastName barangay purok sex birthDate idVerified')
+      .populate('project', 'title')
+      .populate('program', 'title')
     if (!activity) return res.status(404).json({ message: 'Activity not found' })
-    res.json({ attendance: activity.attendance, totalDays: activity.totalDays, totalPoints: activity.totalPoints })
+    // ?export=1 — the officer is downloading/printing the sheet (personal data → audit trail)
+    if (req.query.export) {
+      await AuditLog.create({
+        user: req.user._id, action: 'EXPORT_ATTENDANCE',
+        details: `${req.user.firstName} ${req.user.lastName} downloaded the attendance of activity: ${activity.title}`,
+      }).catch(() => {})
+    }
+    res.json({
+      attendance: activity.attendance, totalDays: activity.totalDays, totalPoints: activity.totalPoints,
+      activity: { _id: activity._id, title: activity.title, type: activity.type, startDate: activity.startDate, endDate: activity.endDate, venue: activity.venue || '', project: activity.project?.title || '', program: activity.program?.title || '' },
+    })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -398,7 +476,7 @@ const addPhoto = async (req, res) => {
 
     await AuditLog.create({ user: req.user._id, action: 'ADD_PPA_PHOTO', details: `${req.user.firstName} ${req.user.lastName} added a photo to ${type}: ${doc.title}` })
     res.json({ message: 'Photo added.', photos: doc.photos })
-  } catch (e) { res.status(500).json({ message: e.message }) }
+  } catch (e) { serverError(res, e) }
 }
 
 // DELETE /api/programs/:type/:id/photos/:photoId
@@ -414,17 +492,92 @@ const deletePhoto = async (req, res) => {
     doc.photos = doc.photos.filter(p => p._id.toString() !== photoId)
     await doc.save()
     res.json({ message: 'Photo removed.', photos: doc.photos })
-  } catch (e) { res.status(500).json({ message: e.message }) }
+  } catch (e) { serverError(res, e) }
 }
 
 
 // GET /api/programs/public
 // Kabataan-safe PPA tree: Program → Project → Activity with photos, status,
 // and "spent" (approved expenses) rolled up. No planned/allocated budget is exposed.
+// ── PROGRESS UPDATES & DOCUMENTS ─────────────────────────────────────────────
+const STATUSES = ['planned', 'ongoing', 'completed', 'cancelled']
+
+// POST /api/programs/:id/updates  { note, progress?, status? }
+const addProgressUpdate = async (req, res) => {
+  try {
+    const note = typeof req.body.note === 'string' ? req.body.note.trim() : ''
+    if (!note) return res.status(400).json({ message: 'Write what happened.' })
+    const raw = req.body.progress
+    const progress = raw === '' || raw === null || raw === undefined ? null : Math.round(Number(raw))
+    if (progress !== null && !(progress >= 0 && progress <= 100)) return res.status(400).json({ message: 'Progress must be 0–100%.' })
+    const status = STATUSES.includes(req.body.status) ? req.body.status : ''
+
+    const program = await Program.findById(req.params.id)
+    if (!program) return res.status(404).json({ message: 'Program not found' })
+    program.progressUpdates.push({ note, progress, status, postedBy: req.user._id, postedAt: new Date() })
+    if (status) program.status = status
+    await program.save()
+
+    await AuditLog.create({ user: req.user._id, action: 'PROGRAM_UPDATE', details: `Progress update on "${program.title}"${progress !== null ? ` (${progress}%)` : ''}${status ? ` — status: ${status}` : ''}` })
+    res.status(201).json({ message: 'Update posted.', program })
+  } catch (error) {
+    serverError(res, error)
+  }
+}
+
+// DELETE /api/programs/:id/updates/:updateId
+const deleteProgressUpdate = async (req, res) => {
+  try {
+    const program = await Program.findById(req.params.id)
+    if (!program) return res.status(404).json({ message: 'Program not found' })
+    const u = program.progressUpdates.id(req.params.updateId)
+    if (!u) return res.status(404).json({ message: 'Update not found' })
+    u.deleteOne()
+    await program.save()
+    await AuditLog.create({ user: req.user._id, action: 'DELETE_PROGRAM_UPDATE', details: `Removed a progress update from "${program.title}": ${u.note.slice(0, 80)}` })
+    res.json({ message: 'Update removed.', program })
+  } catch (error) {
+    serverError(res, error)
+  }
+}
+
+// POST /api/programs/:id/documents  { name, url }  (url from /upload/document)
+const addDocument = async (req, res) => {
+  try {
+    const name = typeof req.body.name === 'string' ? req.body.name.trim().slice(0, 120) : ''
+    const url = typeof req.body.url === 'string' ? req.body.url.trim() : ''
+    if (!name || !/^https:\/\//.test(url)) return res.status(400).json({ message: 'A file and a name are required.' })
+    const program = await Program.findById(req.params.id)
+    if (!program) return res.status(404).json({ message: 'Program not found' })
+    program.documents.push({ name, url, uploadedBy: req.user._id, uploadedAt: new Date() })
+    await program.save()
+    await AuditLog.create({ user: req.user._id, action: 'ADD_PROGRAM_DOCUMENT', details: `Attached "${name}" to "${program.title}"` })
+    res.status(201).json({ message: 'Document attached.', program })
+  } catch (error) {
+    serverError(res, error)
+  }
+}
+
+// DELETE /api/programs/:id/documents/:docId
+const deleteDocument = async (req, res) => {
+  try {
+    const program = await Program.findById(req.params.id)
+    if (!program) return res.status(404).json({ message: 'Program not found' })
+    const d = program.documents.id(req.params.docId)
+    if (!d) return res.status(404).json({ message: 'Document not found' })
+    d.deleteOne()
+    await program.save()
+    await AuditLog.create({ user: req.user._id, action: 'DELETE_PROGRAM_DOCUMENT', details: `Removed "${d.name}" from "${program.title}"` })
+    res.json({ message: 'Document removed.', program })
+  } catch (error) {
+    serverError(res, error)
+  }
+}
+
 const getPublicPrograms = async (req, res) => {
   try {
     const [programs, projects, activities] = await Promise.all([
-      Program.find().populate('organizer', 'firstName lastName').sort({ createdAt: -1 }).lean(),
+      Program.find(VISIBLE).populate('organizer', 'firstName lastName').sort({ createdAt: -1 }).lean(),
       Project.find().lean(),
       Activity.find().lean(),
     ])
@@ -483,6 +636,9 @@ const getPublicPrograms = async (req, res) => {
       _id: g._id, title: g.title, description: g.description, category: g.category, status: g.status,
       startDate: g.startDate, endDate: g.endDate,
       organizer: g.organizer ? `${g.organizer.firstName} ${g.organizer.lastName}` : '',
+      targetBeneficiaries: g.targetBeneficiaries || '', beneficiaryCount: g.beneficiaryCount ?? null,
+      // progress log, newest first (documents stay with the officers)
+      updates: (g.progressUpdates || []).map((u) => ({ _id: u._id, note: u.note, progress: u.progress, status: u.status, postedAt: u.postedAt })).reverse(),
       spent: spentProg[g._id.toString()] || 0,
       photos: safePhotos(g.photos),
       projects: projByProgram[g._id.toString()] || [],
@@ -490,7 +646,7 @@ const getPublicPrograms = async (req, res) => {
 
     res.json({ programs: result })
   } catch (e) {
-    res.status(500).json({ message: e.message })
+    serverError(res, e)
   }
 }
 
@@ -500,9 +656,10 @@ module.exports = {
   // Projects
   getProjects, createProject, updateProject, deleteProject,
   // Activities
-  getActivities, createActivity, updateActivity,
+  getActivities, createActivity, updateActivity, deleteActivity,
   // Attendance
   recordAttendance, getAttendance,
   addPhoto, deletePhoto,
+  addProgressUpdate, deleteProgressUpdate, addDocument, deleteDocument,
   getPublicPrograms,
 }

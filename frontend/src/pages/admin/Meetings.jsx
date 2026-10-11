@@ -1,16 +1,24 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QRCodeCanvas } from 'qrcode.react';
 import toast from 'react-hot-toast';
-import { Plus, Pencil, Trash2, QrCode, Users, Calendar, Power, HandHeart } from 'lucide-react';
+import { Plus, Pencil, Trash2, QrCode, Users, Calendar, Power, HandHeart, MapPin, Clock, Star, CalendarClock, CheckCircle2, Radio, FileText } from 'lucide-react';
+import MinutesModal from '../../components/events/MinutesModal';
+import AttendancePanel from '../../components/events/AttendancePanel';
 import api from '../../lib/api';
 import {
   PageHeader, Card, CardContent, Spinner, Badge, Button, Input, Textarea, Select,
-  Modal, EmptyState, Avatar,
+  Modal, EmptyState, Avatar, IconButton, StatCard,
 } from '../../components/ui';
+import { cn, localDateTimeInput } from '../../lib/utils';
+import { eventTypeClass } from '../../lib/events';
+import DateTile from '../../components/events/DateTile';
+import EventCalendar from '../../components/events/EventCalendar';
 
 const TYPES = ['Meeting', 'Workshop', 'Event', 'Seminar', 'Livelihood', 'Sports'];
-const fmt = (d) => new Date(d).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtTime = (d) => new Date(d).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+const VIEWS = [{ key: 'upcoming', label: 'Upcoming' }, { key: 'past', label: 'Past' }, { key: 'all', label: 'All' }, { key: 'calendar', label: 'Calendar' }];
 
 export default function Meetings() {
   const qc = useQueryClient();
@@ -18,6 +26,9 @@ export default function Meetings() {
   const [qr, setQr] = useState(null);
   const [del, setDel] = useState(null);
   const [vol, setVol] = useState(null);
+  const [attend, setAttend] = useState(null); // meeting whose attendance is open
+  const [params, setParams] = useSearchParams();
+  const [minutesId, setMinutesId] = useState(() => params.get('minutes'));
 
   const { data: meetings = [], isLoading } = useQuery({
     queryKey: ['meetings'],
@@ -26,49 +37,122 @@ export default function Meetings() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['meetings'] });
   const delM = useMutation({ mutationFn: (id) => api.delete(`/meetings/${id}`), onSuccess: () => { toast.success('Deleted.'); setDel(null); refresh(); }, onError: (e) => toast.error(e.response?.data?.message || 'Failed.') });
 
+  const [now] = useState(() => Date.now()); // fixed for this visit, so lists don't shuffle while open
+  const sorted = useMemo(() => {
+    const up = meetings.filter((m) => new Date(m.date).getTime() >= now - 3 * 3600e3).sort((x, y) => new Date(x.date) - new Date(y.date));
+    const past = meetings.filter((m) => new Date(m.date).getTime() < now - 3 * 3600e3).sort((x, y) => new Date(y.date) - new Date(x.date));
+    return { upcoming: up, past, all: [...up, ...past] };
+  }, [meetings, now]);
+  const [view, setView] = useState('upcoming');
+  const list = sorted[view];
+  const thisMonth = meetings.filter((m) => { const d = new Date(m.date), t = new Date(now); return d.getMonth() === t.getMonth() && d.getFullYear() === t.getFullYear(); }).length;
+  const liveQr = meetings.filter((m) => m.qrActive).length;
+  const openNew = () => setModal({ mode: 'create', data: {} });
+
+  // One event card — used by the list and by the calendar's selected day
+  const renderCard = (m) => {
+    const past = new Date(m.date).getTime() < now - 3 * 3600e3;
+    const venue = m.venue || m.location;
+    return (
+      <Card key={m._id} className="transition-shadow hover:shadow-pop">
+        <CardContent className="flex gap-4">
+          <DateTile date={m.date} past={past} />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={cn('rounded-md px-2 py-0.5 text-xs font-semibold', eventTypeClass(m.type))}>{m.type}</span>
+              {m.qrActive && (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">
+                  <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60 motion-reduce:hidden" /><span className="relative inline-flex h-2 w-2 rounded-full bg-success" /></span>
+                  Check-in open
+                </span>
+              )}
+              {past && <Badge variant="default">Done</Badge>}
+            </div>
+            <h3 className="mt-1.5 truncate font-bold text-fg">{m.title}</h3>
+            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+              <span className="inline-flex items-center gap-1.5"><Clock aria-hidden="true" className="h-4 w-4 text-subtle" />{m.time || fmtTime(m.date)}</span>
+              {venue && <span className="inline-flex min-w-0 items-center gap-1.5"><MapPin aria-hidden="true" className="h-4 w-4 shrink-0 text-subtle" /><span className="truncate">{venue}</span></span>}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-subtle">
+              <span className="inline-flex items-center gap-1"><Star aria-hidden="true" className="h-3.5 w-3.5 text-accent" />{m.pointsReward ?? 10} points</span>
+              {(m.checkedIn || []).length > 0 && <span className="inline-flex items-center gap-1"><Users aria-hidden="true" className="h-3.5 w-3.5" />{m.checkedIn.length} checked in</span>}
+              {m.needsVolunteers && <span className="inline-flex items-center gap-1 font-semibold text-accent"><HandHeart aria-hidden="true" className="h-3.5 w-3.5" />{(m.volunteers || []).length}{m.volunteerSlots ? ` / ${m.volunteerSlots}` : ''} volunteers</span>}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
+              <Button size="sm" variant={m.qrActive ? 'primary' : 'outline'} onClick={() => setQr(m)}><QrCode className="h-4 w-4" /> {m.qrActive ? 'Show QR' : 'QR check-in'}</Button>
+              <Button size="sm" variant="outline" onClick={() => setAttend(m)}><Users className="h-4 w-4" /> Attendance</Button>
+              {m.needsVolunteers && <Button size="sm" variant="outline" onClick={() => setVol(m)}><HandHeart className="h-4 w-4" /> Volunteers</Button>}
+              {(m.minutes?.text || new Date(m.date).getTime() <= now + 864e5) && (
+                <Button size="sm" variant="outline" onClick={() => setMinutesId(m._id)}><FileText className="h-4 w-4" /> {m.minutes?.text ? 'Minutes' : 'Write minutes'}</Button>
+              )}
+              <span className="ml-auto flex gap-1">
+                <IconButton icon={Pencil} label={`Edit “${m.title}”`} onClick={() => setModal({ mode: 'edit', data: m })} />
+                <IconButton icon={Trash2} label={`Delete “${m.title}”`} tone="danger" onClick={() => setDel(m)} />
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <>
-      <PageHeader title="Meetings & Events" description="Schedule activities and generate QR check-in codes that award points."
-        actions={<Button onClick={() => setModal({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New</Button>} />
+      <PageHeader title="Meetings & Events" description="Schedule council meetings and youth activities, then run QR check-in so kabataan earn points."
+        actions={<Button onClick={openNew}><Plus className="h-4 w-4" /> New event</Button>} />
 
-      {isLoading ? <div className="flex justify-center py-16"><Spinner className="h-7 w-7 text-primary" /></div>
-        : meetings.length === 0 ? <EmptyState icon={Calendar} title="No meetings yet" description="Schedule your first meeting or event." action={<Button onClick={() => setModal({ mode: 'create', data: {} })}><Plus className="h-4 w-4" /> New</Button>} />
+      {isLoading ? <div className="flex justify-center py-16" role="status"><Spinner className="h-7 w-7 text-primary" /><span className="sr-only">Loading…</span></div>
+        : meetings.length === 0 ? <EmptyState icon={Calendar} title="No meetings or events yet" description="Schedule a council meeting or a youth activity to get started." action={<Button onClick={openNew}><Plus className="h-4 w-4" /> New event</Button>} />
         : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {meetings.map((m) => (
-              <Card key={m._id}>
-                <CardContent>
-                  <div className="mb-2 flex items-center justify-between">
-                    <Badge variant="primary">{m.type}</Badge>
-                    {m.qrActive && <Badge variant="success">QR active</Badge>}
-                  </div>
-                  <h3 className="font-bold text-fg">{m.title}</h3>
-                  <p className="mt-1 text-sm text-muted">{fmt(m.date)}</p>
-                  {m.location && <p className="text-sm text-subtle">{m.location}</p>}
-                  <p className="mt-2 text-xs text-subtle">{m.pointsReward ?? 10} points on check-in</p>
-                  {m.needsVolunteers && (
-                    <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-accent">
-                      <HandHeart className="h-3.5 w-3.5" /> {(m.volunteers || []).length}{m.volunteerSlots ? ` / ${m.volunteerSlots}` : ''} volunteers
-                    </p>
-                  )}
-                  <div className="mt-4 flex flex-wrap gap-1.5">
-                    <Button size="sm" variant="outline" onClick={() => setQr(m)}><QrCode className="h-4 w-4" /> QR</Button>
-                    {m.needsVolunteers && <Button size="sm" variant="outline" onClick={() => setVol(m)}><HandHeart className="h-4 w-4" /> Volunteers</Button>}
-                    <Button size="sm" variant="ghost" onClick={() => setModal({ mode: 'edit', data: m })}><Pencil className="h-4 w-4" /></Button>
-                    <Button size="sm" variant="ghost" className="text-danger hover:bg-danger/10" onClick={() => setDel(m)}><Trash2 className="h-4 w-4" /></Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <>
+            <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <StatCard label="Upcoming" value={sorted.upcoming.length} icon={CalendarClock} tone="primary" />
+              <StatCard label="This month" value={thisMonth} icon={Calendar} tone="info" />
+              <StatCard label="QR check-in live" value={liveQr} icon={Radio} tone={liveQr ? 'success' : 'primary'} />
+              <StatCard label="Completed" value={sorted.past.length} icon={CheckCircle2} tone="accent" />
+            </div>
+
+            <div className="mb-4 flex flex-wrap gap-1 rounded-xl bg-surface2 p-1" role="group" aria-label="Show">
+              {VIEWS.map((v) => (
+                <button key={v.key} type="button" aria-pressed={view === v.key} onClick={() => setView(v.key)}
+                  className={cn('inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition-colors',
+                    view === v.key ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg')}>
+                  {v.key === 'calendar' && <Calendar aria-hidden="true" className="h-4 w-4" />}{v.label}{sorted[v.key] && <span className="rounded bg-surface2 px-1.5 text-xs tabular-nums text-muted">{sorted[v.key].length}</span>}
+                </button>
+              ))}
+            </div>
+
+            {view === 'calendar' ? (
+              <EventCalendar events={meetings} renderEvents={(day) => <div className="grid gap-4 xl:grid-cols-2">{day.map(renderCard)}</div>} />
+            ) : list.length === 0 ? (
+              <EmptyState icon={CalendarClock} title={view === 'upcoming' ? 'Nothing scheduled' : 'No past events'}
+                description={view === 'upcoming' ? 'Schedule the next meeting or youth activity.' : 'Finished meetings and events appear here.'}
+                action={view === 'upcoming' && <Button onClick={openNew}><Plus className="h-4 w-4" /> New event</Button>} />
+            ) : (
+              <div className="grid gap-4 xl:grid-cols-2">
+                {list.map(renderCard)}
+              </div>
+            )}
+          </>
         )}
 
       {modal && <MeetingForm modal={modal} onClose={() => setModal(null)} onDone={() => { setModal(null); refresh(); }} />}
       {qr && <QRModal meeting={qr} onClose={() => { setQr(null); refresh(); }} />}
+      {minutesId && meetings.find((x) => x._id === minutesId) && (
+        <MinutesModal meeting={meetings.find((x) => x._id === minutesId)} canEdit onSaved={refresh}
+          onClose={() => { setMinutesId(null); if (params.get('minutes')) setParams({}, { replace: true }); }} />
+      )}
       {vol && <VolunteersModal meeting={vol} onClose={() => setVol(null)} />}
-      <Modal open={!!del} onClose={() => setDel(null)} title="Delete meeting"
+      {attend && (
+        <Modal open onClose={() => setAttend(null)} size="lg" title={`Attendance · ${attend.title}`}
+          description={new Date(attend.date).toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          footer={<Button variant="ghost" onClick={() => setAttend(null)}>Close</Button>}>
+          <AttendancePanel meetingId={attend._id} />
+        </Modal>
+      )}
+      <Modal open={!!del} onClose={() => setDel(null)} title="Delete this event?"
         footer={<><Button variant="ghost" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" loading={delM.isPending} onClick={() => delM.mutate(del._id)}>Delete</Button></>}>
-        <p className="text-sm text-muted">Delete “{del?.title}”?</p>
+        <p className="text-sm text-muted">Delete “{del?.title}”? Its check-ins stay in members’ points history.</p>
       </Modal>
     </>
   );
@@ -79,8 +163,8 @@ function MeetingForm({ modal, onClose, onDone }) {
   const d = modal.data;
   const [form, setForm] = useState({
     title: d.title || '', type: d.type || 'Meeting',
-    date: d.date ? new Date(d.date).toISOString().slice(0, 16) : '',
-    location: d.location || '', description: d.description || '', pointsReward: d.pointsReward ?? 10,
+    date: d.date ? localDateTimeInput(d.date) : '',
+    venue: d.venue || d.location || '', description: d.description || '', pointsReward: d.pointsReward ?? 10,
     needsVolunteers: !!d.needsVolunteers, volunteerRole: d.volunteerRole || '', volunteerSlots: d.volunteerSlots ?? 0,
   });
   const on = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -92,10 +176,11 @@ function MeetingForm({ modal, onClose, onDone }) {
   const submit = (e) => {
     e.preventDefault();
     if (!form.title || !form.date) return toast.error('Title and date are required.');
-    m.mutate({ ...form, pointsReward: Number(form.pointsReward), volunteerSlots: Number(form.volunteerSlots) || 0 });
+    // send a real timestamp — the server runs in UTC and would misread a bare "2026-10-15T14:00"
+    m.mutate({ ...form, date: new Date(form.date).toISOString(), pointsReward: Number(form.pointsReward), volunteerSlots: Number(form.volunteerSlots) || 0 });
   };
   return (
-    <Modal open onClose={onClose} title={isEdit ? 'Edit meeting' : 'New meeting'} size="lg"
+    <Modal open onClose={onClose} title={isEdit ? 'Edit meeting or event' : 'New meeting or event'} size="lg"
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button loading={m.isPending} onClick={submit}>Save</Button></>}>
       <form onSubmit={submit} className="space-y-4">
         <Input label="Title" name="title" value={form.title} onChange={on} />
@@ -105,7 +190,7 @@ function MeetingForm({ modal, onClose, onDone }) {
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Input label="Date & time" name="date" type="datetime-local" value={form.date} onChange={on} />
-          <Input label="Location" name="location" value={form.location} onChange={on} />
+          <Input label="Venue" name="venue" value={form.venue} onChange={on} placeholder="e.g. Barangay Hall" />
         </div>
         <Textarea label="Description" name="description" value={form.description} onChange={on} rows={3} />
 

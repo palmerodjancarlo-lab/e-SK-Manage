@@ -5,10 +5,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Wallet, ChevronRight, ChevronLeft, FolderKanban, ClipboardList, Layers,
+  ChevronRight, ChevronLeft, FolderKanban, ClipboardList, Layers,
 } from 'lucide-react';
 import api from '../../lib/api';
-import { Card, CardContent, Spinner, EmptyState } from '../../components/ui';
+import { Card, CardContent, Spinner, EmptyState, PageHeader } from '../../components/ui';
 import { cn } from '../../lib/utils';
 
 const peso = (n) =>
@@ -34,7 +34,7 @@ function BudgetBar({ allocated, spent }) {
         <span className={cn('font-bold', over ? 'text-danger' : 'text-fg')}>{pct}%</span>
       </div>
       <div className="h-2 w-full overflow-hidden rounded-full bg-surface2">
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: over ? '#ef4444' : '#4f46e5' }} />
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: over ? '#ef4444' : 'rgb(var(--primary))' }} />
       </div>
     </div>
   );
@@ -164,10 +164,8 @@ export default function BudgetBreakdown() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="inline-flex items-center gap-2 text-2xl font-extrabold text-fg"><Wallet className="h-6 w-6 text-primary" /> Budget Breakdown</h2>
-        <p className="text-sm text-muted">Program → Project → Activity. Spending rolls up from recorded expenses.</p>
-      </div>
+      <PageHeader className="mb-0" title="Budget Utilization"
+        description="How each program’s budget is being used — Program → Project → Activity, rolled up from approved expenses." />
       {openId ? <Detail id={openId} onBack={() => setOpenId(null)} /> : <Overview onOpen={setOpenId} />}
     </div>
   );

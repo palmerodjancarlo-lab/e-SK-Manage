@@ -50,4 +50,13 @@ function computePriorityPoints(basePoints, user) {
   return { finalPoints, bonusPoints, totalBonus, applied, reason };
 }
 
-module.exports = { computePriorityPoints, ageFrom, RULES };
+// Who can earn or spend points: an active kabataan whose residency is verified.
+// Returns { eligible, reason }.
+function pointsEligibility(user) {
+  if (!user || user.role !== 'kabataan') return { eligible: false, reason: 'Points are only for kabataan members.' };
+  if (user.isActive === false) return { eligible: false, reason: 'This account is deactivated.' };
+  if (!user.idVerified) return { eligible: false, reason: 'Residency must be verified by the SK Chairperson first.' };
+  return { eligible: true, reason: '' };
+}
+
+module.exports = { computePriorityPoints, pointsEligibility, ageFrom, RULES };

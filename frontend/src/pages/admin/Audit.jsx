@@ -16,8 +16,18 @@ import {
   Wallet, Activity as ActivityIcon, ArrowDownLeft, ArrowUpRight, FileText, Filter,
 } from 'lucide-react';
 import api from '../../lib/api';
-import { Card, CardContent, Spinner, Avatar } from '../../components/ui';
+import { Card, CardContent, Spinner, Avatar, Table, THead, TBody, TR, TH, TD } from '../../components/ui';
 import { cn, peso } from '../../lib/utils';
+
+// Rows open on click; this button makes the same action reachable by keyboard
+function ViewButton({ onClick }) {
+  return (
+    <button type="button" onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="inline-flex min-h-[32px] items-center rounded-md px-2 text-xs font-semibold text-primary hover:bg-primary/10">
+      View
+    </button>
+  );
+}
 
 // ---- bucketing by keyword (resilient to backend naming) ----
 const RX_AUTH = /LOGIN|LOGOUT|SIGN.?IN|SIGN.?OUT|SIGN.?UP|REGISTER|REGISTRATION/i;
@@ -255,7 +265,7 @@ export default function SecurityCenter() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard icon={<Wallet className="h-5 w-5" />} label="Financial records" value={stats.finance} note="Budget in & out" accent="#10b981" chip="rgba(16,185,129,0.14)" />
         <SummaryCard icon={<LogIn className="h-5 w-5" />} label="Sign-ins logged" value={stats.auth} note="Registration & login" accent="#3b82f6" chip="rgba(59,130,246,0.14)" />
-        <SummaryCard icon={<ActivityIcon className="h-5 w-5" />} label="User actions" value={stats.activity} note="System activity" accent="#6366f1" chip="rgba(99,102,241,0.14)" />
+        <SummaryCard icon={<ActivityIcon className="h-5 w-5" />} label="User actions" value={stats.activity} note="System activity" accent="rgb(var(--primary))" chip="rgb(var(--primary) / 0.12)" />
         <SummaryCard icon={<ShieldAlert className="h-5 w-5" />} label="Flagged" value={stats.flagged} note="Needs review" accent="#ef4444" chip="rgba(239,68,68,0.12)" />
       </div>
 
@@ -295,32 +305,31 @@ export default function SecurityCenter() {
           <Empty icon={<Wallet className="h-6 w-6" />} title="No financial records yet" desc="Funds coming in and expenses going out will appear here once they are recorded." />
         ) : (
           <div className="space-y-4">
-            <Card><CardContent className="overflow-x-auto p-0">
-              <table className="w-full min-w-[760px] text-sm">
-                <thead><tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted">
-                  <th className="px-4 py-3">Record ID</th><th className="px-4 py-3">User</th><th className="px-4 py-3">Action</th>
-                  <th className="px-4 py-3">Flow</th><th className="px-4 py-3 text-right">Amount</th><th className="px-4 py-3">When</th>
-                </tr></thead>
-                <tbody className="divide-y divide-border">
+            <Table label="Financial audit records" stack>
+                <THead><TR>
+                  <TH>Record ID</TH><TH>User</TH><TH>Action</TH><TH>Flow</TH><TH className="text-right">Amount</TH><TH>When</TH>
+                  <TH><span className="sr-only">Details</span></TH>
+                </TR></THead>
+                <TBody>
                   {paged(financeRows).map((l) => (
-                    <tr key={l._id} onClick={() => setSelected(l)} className="cursor-pointer transition hover:bg-surface2/50">
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted">{shortId(l._id)}</td>
-                      <td className="px-4 py-3 font-semibold text-fg">{l._actor}</td>
-                      <td className="px-4 py-3 text-fg">{l._label}</td>
-                      <td className="px-4 py-3">
+                    <TR key={l._id} onClick={() => setSelected(l)} className="cursor-pointer">
+                      <TD label="Record" className="whitespace-nowrap font-mono text-xs text-muted">{shortId(l._id)}</TD>
+                      <TD label="User" className="font-semibold">{l._actor}</TD>
+                      <TD label="Action">{l._label}</TD>
+                      <TD label="Flow">
                         {l._dir === 'in' && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400"><ArrowDownLeft className="h-3 w-3" /> In</span>}
                         {l._dir === 'out' && <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/12 px-2 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400"><ArrowUpRight className="h-3 w-3" /> Out</span>}
                         {!l._dir && <span className="text-xs text-subtle">—</span>}
-                      </td>
-                      <td className={cn('whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums', l._dir === 'out' ? 'text-rose-600 dark:text-rose-400' : l._dir === 'in' ? 'text-emerald-600 dark:text-emerald-400' : 'text-fg')}>
+                      </TD>
+                      <TD label="Amount" className={cn('whitespace-nowrap text-right font-bold tabular-nums', l._dir === 'out' ? 'text-danger' : l._dir === 'in' ? 'text-success' : 'text-fg')}>
                         {l._amount != null ? `${l._dir === 'out' ? '−' : l._dir === 'in' ? '+' : ''}${peso(l._amount)}` : '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-subtle">{fmtFull(l._when)}</td>
-                    </tr>
+                      </TD>
+                      <TD label="When" className="whitespace-nowrap text-xs text-subtle">{fmtFull(l._when)}</TD>
+                      <TD className="text-right"><ViewButton onClick={() => setSelected(l)} /></TD>
+                    </TR>
                   ))}
-                </tbody>
-              </table>
-            </CardContent></Card>
+                </TBody>
+            </Table>
             {renderPagination(financeRows)}
           </div>
         )
@@ -332,24 +341,23 @@ export default function SecurityCenter() {
           <Empty icon={<LogIn className="h-6 w-6" />} title="No login records yet" desc="Registrations and sign-ins will appear here once the backend logs auth events." />
         ) : (
           <div className="space-y-4">
-            <Card><CardContent className="overflow-x-auto p-0">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead><tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted">
-                  <th className="px-4 py-3">User</th><th className="px-4 py-3">Event</th><th className="px-4 py-3">Date / Time</th><th className="px-4 py-3">IP</th><th className="px-4 py-3">Result</th>
-                </tr></thead>
-                <tbody className="divide-y divide-border">
+            <Table label="Login history" stack>
+                <THead><TR>
+                  <TH>User</TH><TH>Event</TH><TH>Date / Time</TH><TH>IP</TH><TH>Result</TH><TH><span className="sr-only">Details</span></TH>
+                </TR></THead>
+                <TBody>
                   {paged(authRows).map((l) => (
-                    <tr key={l._id} onClick={() => setSelected(l)} className="cursor-pointer hover:bg-surface2/50">
-                      <td className="px-4 py-3 font-semibold text-fg">{l._actor}</td>
-                      <td className="px-4 py-3 text-fg">{l._label}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-subtle">{fmtFull(l._when)}</td>
-                      <td className="px-4 py-3 text-muted">{l._ip}</td>
-                      <td className="px-4 py-3">{/FAIL/i.test(l.action || '') ? <span className="text-xs font-bold text-rose-500">Failed</span> : <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">Success</span>}</td>
-                    </tr>
+                    <TR key={l._id} onClick={() => setSelected(l)} className="cursor-pointer">
+                      <TD label="User" className="font-semibold">{l._actor}</TD>
+                      <TD label="Event">{l._label}</TD>
+                      <TD label="When" className="whitespace-nowrap text-xs text-subtle">{fmtFull(l._when)}</TD>
+                      <TD label="IP" className="text-muted">{l._ip}</TD>
+                      <TD label="Result">{/FAIL/i.test(l.action || '') ? <span className="text-xs font-bold text-danger">Failed</span> : <span className="text-xs font-bold text-success">Success</span>}</TD>
+                      <TD className="text-right"><ViewButton onClick={() => setSelected(l)} /></TD>
+                    </TR>
                   ))}
-                </tbody>
-              </table>
-            </CardContent></Card>
+                </TBody>
+            </Table>
             {renderPagination(authRows)}
           </div>
         )

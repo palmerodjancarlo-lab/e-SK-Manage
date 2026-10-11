@@ -87,6 +87,7 @@ const UserSchema = new mongoose.Schema({
   // SK-specific
   position:      { type:String, trim:true, default:'' },  // committee / assigned role
   contactNumber: { type:String, trim:true, default:'' },
+  showContact:   { type:Boolean, default:true }, // officials: show email/phone in the kabataan directory
   photo:         { type:String, default:'' },
   address:       { type:String, trim:true, default:'' },
   purok:         { type:String, trim:true, default:'' },   // residency within Tawiran
@@ -97,7 +98,20 @@ const UserSchema = new mongoose.Schema({
   birthDate:   { type:Date },
   civilStatus: { type:String, enum:['Single','Married','Widowed','Separated',''], default:'' },
   // Verification: a photo of a valid ID or proof of residency the chairperson reviews
-  idPhoto:       { type:String, default:'' },   // Cloudinary URL
+  idPhoto:       { type:String, default:'' },   // LEGACY public Cloudinary URL — cleared by scripts/migrate-private-ids.js
+  // Private (authenticated) Cloudinary asset. Never sent to clients; served only
+  // through the permission-checked /id-document endpoints.
+  idDocument: {
+    type: new mongoose.Schema({
+      publicId:     String,
+      resourceType: String,
+      format:       String,
+    }, { _id:false }),
+    select: false,
+    default: undefined,
+  },
+  idType:        { type:String, trim:true, maxlength:80, default:'' }, // e.g. "School ID" or any ID the member has
+  idSubmittedAt: { type:Date, default:null },
   idVerified:    { type:Boolean, default:false },// chairperson confirms residency
   idVerifiedBy:  { type:mongoose.Schema.Types.ObjectId, ref:'User', default:null },
   idVerifiedAt:  { type:Date, default:null },
@@ -112,6 +126,14 @@ const UserSchema = new mongoose.Schema({
   // Password reset code
   resetCode:    { type:String, select:false },
   resetExpires: { type:Date,   select:false },
+  // Wrong guesses against the current code — the code is discarded after OTP_MAX_ATTEMPTS
+  verificationAttempts: { type:Number, default:0, select:false },
+  resetAttempts:        { type:Number, default:0, select:false },
+  // Email change: the new address only replaces `email` after its code is confirmed
+  pendingEmail:        { type:String, lowercase:true, trim:true, default:'' },
+  emailChangeCode:     { type:String, select:false },
+  emailChangeExpires:  { type:Date,   select:false },
+  emailChangeAttempts: { type:Number, default:0, select:false },
 
   // Points — kabataan participation
   points: { type:Number, default:0 },

@@ -1,20 +1,35 @@
+// src/pages/sk/ReportsHub.jsx — Plans & Reports (Chairperson + Treasurer)
 // cspell:words ABYIP abyip CBYDP cbydp Barangay
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { FileSpreadsheet, FileText, BarChart3, Plus, Trash2, Eye, ScrollText } from 'lucide-react';
+import { FileSpreadsheet, FileText, BarChart3, Trash2, ScrollText, ChevronRight, FolderOpen } from 'lucide-react';
 import api from '../../lib/api';
-import { PageHeader, Card, CardContent, Spinner, Badge, Button, EmptyState } from '../../components/ui';
+import {
+  PageHeader, Spinner, Badge, Button, EmptyState, Modal, IconButton,
+  Table, THead, TBody, TR, TH, TD,
+} from '../../components/ui';
+import { useAuth } from '../../context/auth-store';
+import { isHead } from '../../lib/roles';
+import { REPORT_STATUS_LABEL, REPORT_STATUS_TONE, REPORT_TYPE_LABEL } from '../../lib/reports';
 
-const STATUS_TONE = { draft: 'default', finalized: 'info', submitted: 'success' };
-const TYPE_LABEL = { abyip: 'ABYIP', cbydp: 'CBYDP', accomplishment: 'Accomplishment' };
 const fmt = (d) => (d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
+const routeFor = (type) => (type === 'cbydp' ? 'cbydp' : type === 'accomplishment' ? 'accomplishment' : 'abyip');
+
+const KINDS = [
+  { to: 'abyip', title: 'ABYIP', icon: FileSpreadsheet, text: 'Annual Barangay Youth Investment Program — the yearly plan built from your PPAs and funds.' },
+  { to: 'cbydp', title: 'CBYDP', icon: FileText, text: '3-year Comprehensive Barangay Youth Development Plan, grouped by Center of Participation.' },
+  { to: 'accomplishment', title: 'Accomplishment report', icon: BarChart3, text: 'Planned budget vs actual spending per PPA, from approved expenses.' },
+];
 
 export default function ReportsHub() {
   const qc = useQueryClient();
-  const nav = useNavigate();
+  const { user } = useAuth();
+  const canDelete = isHead(user?.role); // the API only lets the Chairperson delete reports
   const loc = useLocation();
   const base = loc.pathname.startsWith('/admin') ? '/admin' : '/sk';
+  const [del, setDel] = useState(null);
 
   const { data: reports = [], isLoading } = useQuery({
     queryKey: ['reports'],
@@ -22,72 +37,71 @@ export default function ReportsHub() {
   });
   const delM = useMutation({
     mutationFn: (id) => api.delete(`/finance/reports/${id}`),
-    onSuccess: () => { toast.success('Report deleted.'); qc.invalidateQueries({ queryKey: ['reports'] }); },
-    onError: (e) => toast.error(e.response?.data?.message || 'Only the Chairperson can delete reports.'),
+    onSuccess: () => { toast.success('Report deleted.'); setDel(null); qc.invalidateQueries({ queryKey: ['reports'] }); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Could not delete the report.'),
   });
-
-  const routeFor = (type) => (type === 'cbydp' ? 'cbydp' : type === 'accomplishment' ? 'accomplishment' : 'abyip');
-  const open = (r) => nav(`${base}/reports/${routeFor(r.type)}?id=${r._id}`);
 
   return (
     <>
-      <PageHeader title="Reports" description="Generate and manage the SK's official planning and accomplishment documents." />
+      <PageHeader title="Plans & Reports" description="Prepare the SK’s official documents — ABYIP, CBYDP and accomplishment reports — then print or export them." />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <button onClick={() => nav(`${base}/reports/abyip`)} className="w-full rounded-2xl border border-border bg-surface p-5 text-left transition hover:shadow-lg">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/12 text-primary"><FileSpreadsheet className="h-6 w-6" /></div>
-          <h3 className="mt-3 font-bold text-fg">ABYIP</h3>
-          <p className="text-sm text-muted">Annual investment program — the yearly plan from your PPAs &amp; funds.</p>
-          <span className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-primary"><Plus className="h-4 w-4" /> Generate</span>
-        </button>
-
-        <button onClick={() => nav(`${base}/reports/cbydp`)} className="w-full rounded-2xl border border-border bg-surface p-5 text-left transition hover:shadow-lg">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/12 text-primary"><FileText className="h-6 w-6" /></div>
-          <h3 className="mt-3 font-bold text-fg">CBYDP</h3>
-          <p className="text-sm text-muted">3-year development plan, grouped by Center of Participation.</p>
-          <span className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-primary"><Plus className="h-4 w-4" /> Generate</span>
-        </button>
-
-        <button onClick={() => nav(`${base}/reports/accomplishment`)} className="w-full rounded-2xl border border-border bg-surface p-5 text-left transition hover:shadow-lg">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/12 text-primary"><BarChart3 className="h-6 w-6" /></div>
-          <h3 className="mt-3 font-bold text-fg">Accomplishment</h3>
-          <p className="text-sm text-muted">Planned vs actual spending per PPA, from approved expenses.</p>
-          <span className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-primary"><Plus className="h-4 w-4" /> Generate</span>
-        </button>
+      <div className="grid gap-4 md:grid-cols-3">
+        {KINDS.map((k) => {
+          const Icon = k.icon;
+          return (
+            <Link key={k.to} to={`${base}/reports/${k.to}`}
+              className="group flex flex-col rounded-2xl border border-border bg-surface p-5 shadow-card transition-colors hover:border-primary/40 hover:bg-primary/[0.03]">
+              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon aria-hidden="true" className="h-6 w-6" /></span>
+              <h2 className="mt-3 font-bold text-fg">{k.title}</h2>
+              <p className="mt-1 flex-1 text-sm text-muted">{k.text}</p>
+              <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary">
+                Prepare new <ChevronRight aria-hidden="true" className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </Link>
+          );
+        })}
       </div>
 
-      <div className="mt-6">
-        <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-subtle">Saved reports</h3>
-        {isLoading ? <div className="flex justify-center py-12"><Spinner className="h-6 w-6 text-primary" /></div>
-          : reports.length === 0 ? <EmptyState icon={ScrollText} title="No saved reports yet" description="Generate a report, then Save to keep a copy here." />
+      <section className="mt-8" aria-labelledby="saved-reports">
+        <h2 id="saved-reports" className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-subtle">Saved reports</h2>
+        {isLoading ? <div className="flex justify-center py-12" role="status"><Spinner className="h-6 w-6 text-primary" /><span className="sr-only">Loading…</span></div>
+          : reports.length === 0 ? <EmptyState icon={ScrollText} title="No saved reports yet" description="Prepare a report above, then press “Save draft” or “Finalize” to keep it here." />
           : (
-            <Card><CardContent className="overflow-x-auto p-0">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead><tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted">
-                  <th className="px-4 py-3">Title</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">By</th><th className="px-4 py-3">Updated</th><th className="px-4 py-3 text-right">Actions</th>
-                </tr></thead>
-                <tbody className="divide-y divide-border">
-                  {reports.map((r) => (
-                    <tr key={r._id} className="hover:bg-surface2/50">
-                      <td className="px-4 py-3 font-semibold text-fg">{r.title}</td>
-                      <td className="px-4 py-3 text-xs font-semibold text-muted">{TYPE_LABEL[r.type] || r.type}</td>
-                      <td className="px-4 py-3"><Badge variant={STATUS_TONE[r.status] || 'default'}>{r.status}</Badge></td>
-                      <td className="px-4 py-3 text-muted">{r.generatedBy ? `${r.generatedBy.firstName} ${r.generatedBy.lastName}` : '—'}</td>
-                      <td className="px-4 py-3 text-xs text-subtle">{fmt(r.updatedAt || r.createdAt)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1.5">
-                          <Button size="sm" variant="ghost" onClick={() => open(r)}><Eye className="h-4 w-4" /> Open</Button>
-                          <Button size="sm" variant="ghost" className="text-danger hover:bg-danger/10" onClick={() => delM.mutate(r._id)}><Trash2 className="h-4 w-4" /></Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </CardContent></Card>
+            <Table label="Saved reports" stack>
+              <THead><TR>
+                <TH>Report</TH><TH>Status</TH><TH>Prepared by</TH><TH>Last updated</TH>
+                <TH className="text-right"><span className="sr-only">Actions</span></TH>
+              </TR></THead>
+              <TBody>
+                {reports.map((r) => (
+                  <TR key={r._id}>
+                    <TD label="Report">
+                      <Link to={`${base}/reports/${routeFor(r.type)}?id=${r._id}`} className="font-semibold text-fg hover:text-primary hover:underline">{r.title}</Link>
+                      <span className="block text-xs text-subtle">{REPORT_TYPE_LABEL[r.type] || r.type}</span>
+                    </TD>
+                    <TD label="Status"><Badge variant={REPORT_STATUS_TONE[r.status] || 'default'}>{REPORT_STATUS_LABEL[r.status] || r.status}</Badge></TD>
+                    <TD label="Prepared by" className="text-muted">{r.generatedBy ? `${r.generatedBy.firstName} ${r.generatedBy.lastName}` : '—'}</TD>
+                    <TD label="Last updated" className="whitespace-nowrap text-muted">{fmt(r.updatedAt || r.createdAt)}</TD>
+                    <TD className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Link to={`${base}/reports/${routeFor(r.type)}?id=${r._id}`}
+                          className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-primary hover:bg-primary/5">
+                          <FolderOpen aria-hidden="true" className="h-4 w-4" /> Open
+                        </Link>
+                        {canDelete && <IconButton icon={Trash2} tone="danger" label={`Delete “${r.title}”`} onClick={() => setDel(r)} />}
+                      </div>
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
           )}
-      </div>
+      </section>
+
+      <Modal open={!!del} onClose={() => setDel(null)} title="Delete this report?"
+        footer={<><Button variant="outline" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" loading={delM.isPending} onClick={() => delM.mutate(del._id)}>Delete report</Button></>}>
+        <p className="text-sm text-muted">“{del?.title}” ({REPORT_STATUS_LABEL[del?.status] || del?.status}) will be removed from Plans & Reports. This is recorded in the audit trail and can’t be undone.</p>
+      </Modal>
     </>
   );
 }

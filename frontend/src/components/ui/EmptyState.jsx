@@ -4,13 +4,13 @@ export default function EmptyState({ icon: Icon, title, description, action, cla
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface2/50 px-6 py-14 text-center',
+        'flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface px-6 py-12 text-center',
         className
       )}
     >
       {Icon && (
-        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface text-subtle shadow-card">
-          <Icon className="h-7 w-7" />
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-surface2 text-muted">
+          <Icon aria-hidden="true" className="h-6 w-6" />
         </div>
       )}
       <h3 className="text-base font-bold text-fg">{title}</h3>

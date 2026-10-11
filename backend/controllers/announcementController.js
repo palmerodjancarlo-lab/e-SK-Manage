@@ -1,4 +1,5 @@
 const Announcement = require('../models/Announcement')
+const serverError = require('../utils/serverError')
 const AuditLog     = require('../models/AuditLog')
 
 // @GET /api/announcements — Get all
@@ -22,7 +23,7 @@ const getAnnouncements = async (req, res) => {
 
     res.json({ announcements })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -38,16 +39,19 @@ const getAnnouncement = async (req, res) => {
     }
     res.json({ announcement })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
+
+const pick = require('../utils/pick')
+const ANN_EDITABLE = ['title', 'content', 'category', 'isPinned']
 
 // @POST /api/announcements — Create
 const createAnnouncement = async (req, res) => {
   try {
     const announcement = await Announcement.create({
-      ...req.body,
-      author: req.user._id
+      ...pick(req.body, ANN_EDITABLE),
+      author: req.user._id,
     })
 
     await AuditLog.create({
@@ -58,7 +62,7 @@ const createAnnouncement = async (req, res) => {
 
     res.status(201).json({ message: 'Announcement created', announcement })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -66,15 +70,21 @@ const createAnnouncement = async (req, res) => {
 const updateAnnouncement = async (req, res) => {
   try {
     const announcement = await Announcement
-      .findByIdAndUpdate(req.params.id, req.body, { new: true })
+      .findByIdAndUpdate(req.params.id, pick(req.body, ANN_EDITABLE), { new: true, runValidators: true })
 
     if (!announcement) {
       return res.status(404).json({ message: 'Announcement not found' })
     }
 
+    await AuditLog.create({
+      user: req.user._id,
+      action: 'UPDATE_ANNOUNCEMENT',
+      details: `Updated announcement: ${announcement.title}`
+    }).catch(() => {})
+
     res.json({ message: 'Announcement updated', announcement })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -91,7 +101,7 @@ const deleteAnnouncement = async (req, res) => {
 
     res.json({ message: 'Announcement deleted' })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -104,7 +114,7 @@ const togglePin = async (req, res) => {
     await announcement.save()
     res.json({ message: `Announcement ${announcement.isPinned ? 'pinned' : 'unpinned'}`, announcement })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 

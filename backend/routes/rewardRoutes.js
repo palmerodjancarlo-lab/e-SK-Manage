@@ -5,7 +5,19 @@ const { protect } = require('../middleware/authMiddleware')
 const authorize   = require('../middleware/authorize')
 const { getRewards, createReward, updateReward, deleteReward, awardPoints } = require('../controllers/rewardController')
 
+const {
+  requestRedemption, myRedemptions, cancelRedemption, listRedemptions, claimRedemption, rejectRedemption,
+} = require('../controllers/redemptionController')
+
 const SK_MANAGE = ['admin','sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']
+
+// Redemptions — named paths before /:id
+router.get('/redemptions/mine',        protect, authorize('kabataan'), myRedemptions)
+router.put('/redemptions/:id/cancel',  protect, authorize('kabataan'), cancelRedemption)
+router.get('/redemptions',             protect, authorize(...SK_MANAGE), listRedemptions)
+router.put('/redemptions/:id/claim',   protect, authorize(...SK_MANAGE), claimRedemption)
+router.put('/redemptions/:id/reject',  protect, authorize(...SK_MANAGE), rejectRedemption)
+router.post('/:id/redeem',             protect, authorize('kabataan'), requestRedemption)
 
 router.get('/',      protect, getRewards)                       // everyone can view rewards
 router.post('/',     protect, authorize(...SK_MANAGE), createReward)

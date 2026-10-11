@@ -1,5 +1,6 @@
 // controllers/settingController.js
 const mongoose = require('mongoose')
+const serverError = require('../utils/serverError')
 const Setting = require('../models/Setting')
 const User    = require('../models/User')
 const Program = require('../models/Program')
@@ -29,7 +30,7 @@ const getPublicSettings = async (req, res) => {
       },
     })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -46,7 +47,7 @@ const updateSettings = async (req, res) => {
     await s.save()
     res.json({ message: 'Settings updated', settings: s })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -81,7 +82,7 @@ const getSystemInfo = async (req, res) => {
       counts: { totalUsers, kabataan, pendingVerification, officials, programs, upcomingMeetings, announcements },
     })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 

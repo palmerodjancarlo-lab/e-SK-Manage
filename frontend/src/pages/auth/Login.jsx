@@ -1,27 +1,39 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Mail } from 'lucide-react';
+import { Mail, AlertCircle } from 'lucide-react';
 import AuthLayout from '../../components/auth/AuthLayout';
 import PasswordField from '../../components/auth/PasswordField';
 import { Button, Input } from '../../components/ui';
 import { useAuth } from '../../context/auth-store';
 import { homePath } from '../../lib/roles';
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
+  const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+  const onChange = (e) => {
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: value }));
+    setErrors((er) => ({ ...er, [name]: undefined }));
+    setFormError('');
+  };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.email || !form.password) {
-      toast.error('Enter your email and password.');
-      return;
-    }
+    const er = {};
+    if (!form.email.trim()) er.email = 'Enter your email address';
+    else if (!EMAIL_RE.test(form.email.trim())) er.email = 'Enter a valid email address';
+    if (!form.password) er.password = 'Enter your password';
+    setErrors(er);
+    if (Object.keys(er).length) return;
+
     setSubmitting(true);
     try {
       const data = await login(form.email.trim().toLowerCase(), form.password);
@@ -34,7 +46,7 @@ export default function Login() {
         navigate('/verify', { state: { email: res.email || form.email } });
         return;
       }
-      toast.error(res?.message || 'Login failed. Please try again.');
+      setFormError(res?.message || (err.response ? 'Sign in failed. Please try again.' : 'Unable to reach the server. Check your connection and try again.'));
     } finally {
       setSubmitting(false);
     }
@@ -43,24 +55,31 @@ export default function Login() {
   return (
     <AuthLayout
       title="Sign in"
-      subtitle="Access your e-SK Manage account."
+      subtitle="Welcome back. Sign in to continue to your account."
       footer={
         <>
-          New kabataan?{' '}
-          <Link to="/register" className="font-semibold text-primary hover:underline">
-            Create an account
-          </Link>
+          Not a member yet?{' '}
+          <Link to="/register" className="font-semibold text-primary hover:underline">Register as Kabataan</Link>
         </>
       }
     >
-      <form onSubmit={submit} className="space-y-4">
+      <form onSubmit={submit} noValidate className="space-y-5">
+        {formError && (
+          <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{formError}</span>
+          </div>
+        )}
+
         <Input
-          label="Email"
+          label="Email address"
           name="email"
           type="email"
-          placeholder="you@email.com"
+          inputMode="email"
+          placeholder="you@example.com"
           value={form.email}
           onChange={onChange}
+          error={errors.email}
           leftIcon={<Mail className="h-4 w-4" />}
           autoComplete="email"
         />
@@ -69,16 +88,18 @@ export default function Login() {
           name="password"
           value={form.password}
           onChange={onChange}
+          error={errors.password}
           autoComplete="current-password"
+          labelAction={
+            <Link to="/forgot-password" className="text-sm font-medium text-primary hover:underline">Forgot password?</Link>
+          }
         />
-        <div className="flex justify-end">
-          <Link to="/forgot-password" className="text-sm font-medium text-primary hover:underline">
-            Forgot password?
-          </Link>
-        </div>
         <Button type="submit" loading={submitting} className="w-full">
-          Sign in
+          {submitting ? 'Signing in…' : 'Sign in'}
         </Button>
+        <p className="text-center text-xs leading-relaxed text-subtle">
+          SK officials: sign in with the account issued by your SK Chairperson.
+        </p>
       </form>
     </AuthLayout>
   );

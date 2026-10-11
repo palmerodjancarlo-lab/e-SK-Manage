@@ -5,6 +5,7 @@
 // and roll up automatically. Nothing here is typed by hand.
 
 const Program  = require('../models/Program')
+const serverError = require('../utils/serverError')
 const Project  = require('../models/Project')
 const Activity = require('../models/Activity')
 const Expense  = require('../models/Expense')
@@ -74,7 +75,7 @@ const getProgramBreakdown = async (req, res) => {
       projects: projectTree,
     })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 
@@ -101,7 +102,7 @@ const getBudgetOverview = async (req, res) => {
       }),
     })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    serverError(res, error)
   }
 }
 

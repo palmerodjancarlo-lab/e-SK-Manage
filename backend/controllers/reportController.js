@@ -2,6 +2,7 @@
 // Builds a pre-filled ABYIP from live Program + Fund + Expense data,
 // and stores editable report snapshots in the Report collection.
 const Program = require('../models/Program')
+const serverError = require('../utils/serverError')
 const Fund = require('../models/Fund')
 const Expense = require('../models/Expense')
 const Report = require('../models/Report')
@@ -88,7 +89,7 @@ const getAbyipPrefill = async (req, res) => {
       },
     })
   } catch (e) {
-    res.status(500).json({ message: e.message })
+    serverError(res, e)
   }
 }
 
@@ -145,7 +146,7 @@ const getCbydpPrefill = async (req, res) => {
         notedApproved: '', notedApprovedTitle: 'Punong Barangay',
       },
     })
-  } catch (e) { res.status(500).json({ message: e.message }) }
+  } catch (e) { serverError(res, e) }
 }
 
 // GET /api/finance/reports
@@ -153,7 +154,7 @@ const listReports = async (req, res) => {
   try {
     const reports = await Report.find().populate('generatedBy', 'firstName lastName role').sort({ createdAt: -1 })
     res.json({ reports })
-  } catch (e) { res.status(500).json({ message: e.message }) }
+  } catch (e) { serverError(res, e) }
 }
 
 // GET /api/finance/reports/:id
@@ -162,7 +163,7 @@ const getReport = async (req, res) => {
     const report = await Report.findById(req.params.id).populate('generatedBy', 'firstName lastName role')
     if (!report) return res.status(404).json({ message: 'Report not found.' })
     res.json({ report })
-  } catch (e) { res.status(500).json({ message: e.message }) }
+  } catch (e) { serverError(res, e) }
 }
 
 // POST /api/finance/reports — save an edited snapshot
@@ -184,24 +185,42 @@ const saveReport = async (req, res) => {
     })
 
     res.status(201).json({ message: 'Report saved.', report })
-  } catch (e) { res.status(500).json({ message: e.message }) }
+  } catch (e) { serverError(res, e) }
 }
 
 // PUT /api/finance/reports/:id
+// Only report content can change — never who generated it, its type, or timestamps.
+const EDITABLE = ['title', 'fiscalYear', 'periodStart', 'periodEnd', 'data', 'summary', 'status', 'notes']
 const updateReport = async (req, res) => {
   try {
-    const report = await Report.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const changes = {}
+    for (const k of EDITABLE) if (req.body[k] !== undefined) changes[k] = req.body[k]
+    const report = await Report.findById(req.params.id)
     if (!report) return res.status(404).json({ message: 'Report not found.' })
+    const wasStatus = report.status
+    Object.assign(report, changes)
+    await report.save()
+
+    await AuditLog.create({
+      user: req.user._id, action: 'UPDATE_REPORT',
+      details: `${req.user.firstName} ${req.user.lastName} updated report "${report.title}"${changes.status && changes.status !== wasStatus ? ` (${wasStatus} → ${changes.status})` : ''}`,
+    }).catch(() => {})
+
     res.json({ message: 'Report updated.', report })
-  } catch (e) { res.status(500).json({ message: e.message }) }
+  } catch (e) { serverError(res, e) }
 }
 
 // DELETE /api/finance/reports/:id
 const deleteReport = async (req, res) => {
   try {
-    await Report.findByIdAndDelete(req.params.id)
+    const report = await Report.findByIdAndDelete(req.params.id)
+    if (!report) return res.status(404).json({ message: 'Report not found.' })
+    await AuditLog.create({
+      user: req.user._id, action: 'DELETE_REPORT',
+      details: `${req.user.firstName} ${req.user.lastName} deleted ${String(report.type).toUpperCase()} report "${report.title}" (${report.status})`,
+    }).catch(() => {})
     res.json({ message: 'Report deleted.' })
-  } catch (e) { res.status(500).json({ message: e.message }) }
+  } catch (e) { serverError(res, e) }
 }
 
 // GET /api/finance/reports/accomplishment/prefill?year=2026
@@ -275,7 +294,7 @@ const getAccomplishmentPrefill = async (req, res) => {
         notedApproved: '', notedApprovedTitle: 'Punong Barangay',
       },
     })
-  } catch (e) { res.status(500).json({ message: e.message }) }
+  } catch (e) { serverError(res, e) }
 }
 
 module.exports = { getAbyipPrefill, getCbydpPrefill, getAccomplishmentPrefill, listReports, getReport, saveReport, updateReport, deleteReport }

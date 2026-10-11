@@ -11,3 +11,7 @@ export { default as StatCard } from './StatCard';
 export { default as PageHeader } from './PageHeader';
 export * from './Card';
 export * from './Table';
+export { default as Reveal } from './Reveal';
+export { default as BrandBanner } from './BrandBanner';
+export { default as AnimatedNumber } from './AnimatedNumber';
+export { default as IconButton } from './IconButton';

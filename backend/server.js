@@ -1,7 +1,9 @@
 const express   = require('express')
 const dotenv    = require('dotenv')
 const cors      = require('cors')
+const helmet    = require('helmet')
 const morgan    = require('morgan')
+const multer    = require('multer')
 const connectDB = require('./config/db')
 
 
@@ -10,6 +12,10 @@ connectDB()
 
 const app = express()
 app.set('trust proxy', 1)  // real client IP behind Render/Vercel proxy
+
+// Standard security headers. The API is called cross-origin by the frontend,
+// so resources must stay readable from other origins.
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }))
 
 app.use(cors({
   origin: [
@@ -39,6 +45,7 @@ app.use(`${BASE_URI}/rewards`,       require('./routes/rewardRoutes'))
 app.use(`${BASE_URI}/budget`,        require('./routes/budgetRoutes'))
 app.use(`${BASE_URI}/public`,        require('./routes/publicRoutes'))
 app.use(`${BASE_URI}/settings`, require('./routes/settingRoutes'));
+app.use(`${BASE_URI}/notifications`, require('./routes/notificationRoutes'))
 
 app.get('/', (req, res) => {
   res.json({ message: '✅ e-SK Manage API is running' })
@@ -48,9 +55,18 @@ app.use((req, res) => {
   res.status(404).json({ message: 'Route not found' })
 })
 
+// Last-resort error handler. Client errors (bad JSON, oversized or rejected
+// uploads) keep their message; anything else is logged and answered generically.
 app.use((err, req, res, next) => {
-  console.error(err.stack)
-  res.status(500).json({ message: err.message || 'Server Error' })
+  if (err instanceof multer.MulterError) {
+    const message = err.code === 'LIMIT_FILE_SIZE' ? 'File is too large. Try a smaller photo or scan.' : err.message
+    return res.status(400).json({ message })
+  }
+  const status = err.status || err.statusCode || 500
+  if (status < 500) return res.status(status).json({ message: err.expose === false ? 'Bad request.' : err.message })
+
+  console.error(err.stack || err)
+  res.status(500).json({ message: 'Something went wrong on our end. Please try again.' })
 })
 
 const PORT = process.env.PORT || 5000

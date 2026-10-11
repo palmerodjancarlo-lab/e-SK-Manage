@@ -9,7 +9,9 @@ const pointsSchema = new mongoose.Schema({
   meeting:      { type:mongoose.Schema.Types.ObjectId, ref:'Meeting' },   // if from QR check-in
   activity:     { type:mongoose.Schema.Types.ObjectId, ref:'Activity' },  // if from activity attendance
   pointsEarned: { type:Number, required:true, min:1 },
-  type:         { type:String, enum:['earned','awarded','redeemed'], default:'earned' },
+  // 'held' = earned by a member whose residency isn't verified yet. It isn't part of the
+  // balance until verification turns it into 'earned' (utils/heldPoints.js).
+  type:         { type:String, enum:['earned','awarded','redeemed','held'], default:'earned' },
   reason:       { type:String },
   checkedInAt:  { type:Date, default:Date.now },
 }, { timestamps:true })
