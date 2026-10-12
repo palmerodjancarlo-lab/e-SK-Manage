@@ -1,9 +1,12 @@
-// Shared helpers for the SK's official documents (ABYIP, CBYDP, Accomplishment).
+// Shared helpers for the SK's official documents (ABYIP, CBYDP, Financial report).
 import api from './api';
 
 export const REPORT_STATUS_LABEL = { draft: 'Draft', finalized: 'Finalized', submitted: 'Submitted' };
 export const REPORT_STATUS_TONE = { draft: 'default', finalized: 'info', submitted: 'success' };
-export const REPORT_TYPE_LABEL = { abyip: 'ABYIP', cbydp: 'CBYDP', accomplishment: 'Accomplishment report' };
+// 'accomplishment' is the stored type of the Financial report (renamed; saved reports keep the type)
+export const REPORT_TYPE_LABEL = { abyip: 'ABYIP', cbydp: 'CBYDP', accomplishment: 'Financial report' };
+// Reports saved before the rename are titled "Accomplishment Report FY …" — show the new name
+export const reportTitle = (r) => String(r?.title || '').replace(/^Accomplishment Report/i, 'Financial Report');
 
 // Saving the same document again updates it — it never creates a second copy.
 // Returns the report id (new or existing).
@@ -37,6 +40,23 @@ export const signatoryBlock = (s = {}, defaults = {}) => `
       <td style="width:33%;vertical-align:top;">Noted and Approved:<br><br><br><b>${escHtml(s.notedApproved)}</b><br>${escHtml(s.notedApprovedTitle || 'Punong Barangay')}</td>
     </tr>
   </table>`;
+
+// ABYIP signatories: Prepared by (SK Secretary) · Certified by (SK Treasurer) · Approved by (SK Chairperson).
+// ABYIPs saved before this format used Recommending Approval for the Chairperson — carry that over.
+export const abyipSignatories = (s = {}) => ({
+  preparedBy: s.preparedBy || '', preparedByTitle: s.preparedByTitle || 'SK Secretary',
+  certifiedBy: s.certifiedBy || '', certifiedByTitle: s.certifiedByTitle || 'SK Treasurer',
+  approvedBy: s.approvedBy ?? s.recommendingApproval ?? '', approvedByTitle: s.approvedByTitle || 'SK Chairperson',
+});
+
+export const abyipSignatoryBlock = (sig = {}) => {
+  const s = abyipSignatories(sig);
+  const cell = (label, name, title) => `<td style="width:33%;vertical-align:top;">${label}<br><br><br><b>${escHtml(name)}</b><br>${escHtml(title)}</td>`;
+  return `
+  <table style="width:100%;margin-top:34px;border-collapse:collapse;">
+    <tr>${cell('Prepared by:', s.preparedBy, s.preparedByTitle)}${cell('Certified by:', s.certifiedBy, s.certifiedByTitle)}${cell('Approved by:', s.approvedBy, s.approvedByTitle)}</tr>
+  </table>`;
+};
 
 // Opens a print window (Print → Save as PDF). Plans print landscape; sheets can ask for portrait.
 export function printHtml(title, bodyHtml, { portrait = false } = {}) {

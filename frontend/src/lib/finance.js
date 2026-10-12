@@ -11,3 +11,6 @@ export const FUND_SOURCES = [
 
 export const humanize = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 export const isPdfUrl = (u) => /\.pdf($|\?)/i.test(u || '');
+
+// An expense not linked to any Program / Project / Activity
+export const EMPTY_PPA = { program: '', project: '', activity: '' };

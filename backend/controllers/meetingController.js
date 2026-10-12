@@ -581,15 +581,18 @@ const getCheckIns = async (req, res) => {
 }
 
 // @POST /api/meetings/:id/comments
-// Open forum — any user can post after event
+// Event feedback — any member can post once the event has started (officers any time)
 const addComment = async (req, res) => {
   try {
-    const { text } = req.body
-    if (!text || !text.trim())         return res.status(400).json({ message: 'Comment cannot be empty.' })
-    if (text.trim().length > 500)      return res.status(400).json({ message: 'Max 500 characters.' })
+    const text = typeof req.body.text === 'string' ? req.body.text : ''
+    if (!text.trim())                  return res.status(400).json({ message: 'Write your feedback first.' })
+    if (text.trim().length > 500)      return res.status(400).json({ message: 'Feedback can be up to 500 characters.' })
 
     const meeting = await Meeting.findById(req.params.id)
     if (!meeting) return res.status(404).json({ message: 'Meeting not found' })
+    if (req.user.role === 'kabataan' && new Date(meeting.date) > new Date()) {
+      return res.status(400).json({ message: 'Feedback opens when the event starts.' })
+    }
 
     meeting.comments.push({ user: req.user._id, text: text.trim(), createdAt: new Date() })
     await meeting.save()

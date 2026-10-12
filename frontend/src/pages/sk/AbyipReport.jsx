@@ -5,7 +5,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import api from '../../lib/api';
 import { Button, Spinner } from '../../components/ui';
 import ReportToolbar from '../../components/reports/ReportToolbar';
-import { persistReport, printHtml, downloadExcel, letterhead, signatoryBlock } from '../../lib/reports';
+import { persistReport, printHtml, downloadExcel, letterhead, abyipSignatoryBlock, abyipSignatories } from '../../lib/reports';
 
 const CUR = new Date().getFullYear();
 const YEARS = [CUR + 1, CUR, CUR - 1, CUR - 2];
@@ -65,7 +65,7 @@ export default function AbyipReport() {
             fiscalYear: saved.fiscalYear || r.data.report.fiscalYear || y,
             fundingHeader: saved.fundingHeader || { beginningBalance: 0, tenPercentGF: 0, fundRaising: 0 },
             areas: (saved.areas && saved.areas.length) ? saved.areas : [{ area: 'General Administrative Program', rows: [] }],
-            signatories: saved.signatories || {},
+            signatories: abyipSignatories(saved.signatories),
           });
           return;
         }
@@ -76,7 +76,7 @@ export default function AbyipReport() {
         fiscalYear: data.fiscalYear,
         fundingHeader: data.fundingHeader || { beginningBalance: 0, tenPercentGF: 0, fundRaising: 0 },
         areas: (data.areas && data.areas.length) ? data.areas : [{ area: 'General Administrative Program', rows: [] }],
-        signatories: data.signatories || {},
+        signatories: abyipSignatories(data.signatories),
       });
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to load ABYIP data.');
@@ -150,7 +150,7 @@ export default function AbyipReport() {
         <thead><tr>${th('Reference Code')}${th('PPAs')}${th('Description')}${th('Expected Results')}${th('Performance Indicator')}${th('Date of Implementation')}${th('MOOE')}${th('Personnel Services')}${th('Capital Outlay')}${th('Total')}${th('Person Responsible')}</tr></thead>
         <tbody>${body}${totalsRow}</tbody>
       </table>
-      ${signatoryBlock(s)}
+      ${abyipSignatoryBlock(s)}
     </div>`;
   };
 
@@ -238,8 +238,8 @@ export default function AbyipReport() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <SigField heading="Prepared by" name={doc.signatories.preparedBy || ''} title={doc.signatories.preparedByTitle || 'SK Secretary'} onName={(v) => setSig('preparedBy', v)} onTitle={(v) => setSig('preparedByTitle', v)} />
-        <SigField heading="Recommending Approval" name={doc.signatories.recommendingApproval || ''} title={doc.signatories.recommendingApprovalTitle || 'SK Chairperson'} onName={(v) => setSig('recommendingApproval', v)} onTitle={(v) => setSig('recommendingApprovalTitle', v)} />
-        <SigField heading="Noted and Approved" name={doc.signatories.notedApproved || ''} title={doc.signatories.notedApprovedTitle || 'Punong Barangay'} onName={(v) => setSig('notedApproved', v)} onTitle={(v) => setSig('notedApprovedTitle', v)} />
+        <SigField heading="Certified by" name={doc.signatories.certifiedBy || ''} title={doc.signatories.certifiedByTitle || 'SK Treasurer'} onName={(v) => setSig('certifiedBy', v)} onTitle={(v) => setSig('certifiedByTitle', v)} />
+        <SigField heading="Approved by" name={doc.signatories.approvedBy || ''} title={doc.signatories.approvedByTitle || 'SK Chairperson'} onName={(v) => setSig('approvedBy', v)} onTitle={(v) => setSig('approvedByTitle', v)} />
       </div>
     </div>
   );

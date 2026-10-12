@@ -1,6 +1,6 @@
 // Attendance of one event: who checked in (QR) or was marked present by an officer,
 // plus the softcopies — Excel, Print/PDF and a blank sign-in sheet for the venue.
-// Every SK officer can use it; downloads are written to the audit trail.
+// Every SK officer can use it; downloads are written to the audit logs.
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
@@ -109,7 +109,7 @@ export default function AttendancePanel({ meetingId }) {
             </ol>
           </>
         )}
-      <p className="text-xs text-subtle">Attendance sheets contain members’ personal details — every download is recorded in the Audit Trail.</p>
+      <p className="text-xs text-subtle">Attendance sheets contain members’ personal details — every download is recorded in the Audit Logs.</p>
     </div>
   );
 }

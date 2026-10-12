@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Html5Qrcode } from 'html5-qrcode';
 import toast from 'react-hot-toast';
 import { useSearchParams } from 'react-router-dom';
-import { QrCode, Check, MapPin, Star, CalendarDays, CalendarCheck, MessageCircleHeart, HandHeart, Clock, Users } from 'lucide-react';
+import { QrCode, Check, MapPin, Star, CalendarDays, CalendarCheck, MessageSquareText, HandHeart, Clock, Users } from 'lucide-react';
 import api from '../../lib/api';
 import { Card, CardContent, Spinner, Badge, Button, Modal, PageHeader, EmptyState } from '../../components/ui';
 import DateTile from '../../components/events/DateTile';
@@ -11,7 +11,7 @@ import EventCalendar from '../../components/events/EventCalendar';
 import { useAuth } from '../../context/auth-store';
 import { cn } from '../../lib/utils';
 import { eventTime, isPastEvent } from '../../lib/events';
-import SaloobinModal from '../../components/kabataan/SaloobinModal';
+import FeedbackModal from '../../components/events/FeedbackModal';
 
 function QRScanner({ onDecode }) {
     const cbRef = useRef(onDecode);
@@ -56,14 +56,14 @@ export default function KabEvents() {
     const [params] = useSearchParams();
     const [scan, setScan] = useState(() => params.get('scan') === '1');
     const [filter, setFilter] = useState('upcoming');
-    const [saloobin, setSaloobin] = useState(null);
+    const [feedbackFor, setFeedbackFor] = useState(null); // event whose feedback is open
 
     const { data: meetings = [], isLoading } = useQuery({
         queryKey: ['sk-meetings-all'],
         queryFn: async () => {
             const list = (await api.get('/meetings')).data.meetings || [];
             const now = Date.now();
-            return list.map((m) => ({ ...m, _past: isPastEvent(m, now) }))
+            return list.map((m) => ({ ...m, _past: isPastEvent(m, now), _started: new Date(m.date).getTime() <= now }))
                 .sort((a, b) => new Date(a.date) - new Date(b.date));
         },
     });
@@ -139,11 +139,11 @@ export default function KabEvents() {
                         )}
 
                         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
-                            {m._past ? (
+                            {m._started ? (
                                 <>
-                                    {!checkedIn && <span className="text-xs font-medium text-subtle">This event has ended</span>}
-                                    <Button size="sm" variant="outline" onClick={() => setSaloobin(m)}>
-                                        <MessageCircleHeart className="h-4 w-4" /> Share your saloobin
+                                    {m._past && !checkedIn && <span className="text-xs font-medium text-subtle">This event has ended</span>}
+                                    <Button size="sm" variant="outline" onClick={() => setFeedbackFor(m)}>
+                                        <MessageSquareText className="h-4 w-4" /> Give feedback{(m.comments || []).length ? ` · ${m.comments.length}` : ''}
                                     </Button>
                                 </>
                             ) : !checkedIn && (
@@ -196,11 +196,12 @@ export default function KabEvents() {
                 </div>
             </Modal>
 
-            <SaloobinModal
-                meetingId={saloobin?._id}
-                meetingTitle={saloobin?.title}
-                open={!!saloobin}
-                onClose={() => setSaloobin(null)}
+            <FeedbackModal
+                meetingId={feedbackFor?._id}
+                meetingTitle={feedbackFor?.title}
+                startsAt={feedbackFor?.date}
+                open={!!feedbackFor}
+                onClose={() => { setFeedbackFor(null); qc.invalidateQueries({ queryKey: ['sk-meetings-all'] }); }}
             />
         </div>
     );

@@ -10,6 +10,31 @@ const Project = require('../models/Project')
 const Program = require('../models/Program')
 const AuditLog = require('../models/AuditLog')
 const Setting = require('../models/Setting')
+const mongoose = require('mongoose')
+
+// Which PPA an expense belongs to. The most specific pick wins and fills in its parents
+// (activity → its project and program, project → its program), so Budget Utilization
+// always rolls the expense up to the right program. Returns { program, project, activity }
+// (null where not set) or { error }.
+const resolvePpa = async ({ program, project, activity } = {}) => {
+  const id = (v) => (v && mongoose.Types.ObjectId.isValid(String(v)) ? String(v) : null)
+  if (id(activity)) {
+    const a = await Activity.findById(activity).select('project program')
+    if (!a) return { error: 'That activity no longer exists.' }
+    return { activity: a._id, project: a.project || null, program: a.program || null }
+  }
+  if (id(project)) {
+    const p = await Project.findById(project).select('program')
+    if (!p) return { error: 'That project no longer exists.' }
+    return { activity: null, project: p._id, program: p.program || null }
+  }
+  if (id(program)) {
+    const g = await Program.findById(program).select('_id')
+    if (!g) return { error: 'That program no longer exists.' }
+    return { activity: null, project: null, program: g._id }
+  }
+  return { activity: null, project: null, program: null }
+}
 const pick = require('../utils/pick')
 const FUND_EDITABLE = ['source', 'sourceType', 'amount', 'referenceNumber', 'receiptPhoto', 'dateReceived', 'program', 'purpose', 'notes']
 
@@ -208,6 +233,8 @@ const getExpenses = async (req, res) => {
       .populate('activity', 'title')
       .populate('project', 'title')
       .populate('program', 'title')
+      .populate('project', 'title')
+      .populate('program', 'title')
       .sort({ dateSpent: -1 })
 
     const balance = await getBalance()
@@ -239,6 +266,9 @@ const recordExpense = async (req, res) => {
       return res.status(400).json({ message: 'Title, amount, and date spent are required.' })
     }
 
+    const ppa = await resolvePpa({ program, project, activity })
+    if (ppa.error) return res.status(400).json({ message: ppa.error })
+
     const balance = await getBalance()
     if (finalAmount > balance.balance) {
       return res.status(400).json({
@@ -254,9 +284,9 @@ const recordExpense = async (req, res) => {
       receiptDate: receiptDate || dateSpent,
       vendor: vendor || '',
       dateSpent,
-      activity: activity || null,
-      project: project || null,
-      program: program || null,
+      activity: ppa.activity,
+      project: ppa.project,
+      program: ppa.program,
       notes: notes || '',
       source: source === 'scanned' ? 'scanned' : 'manual',
       status: 'pending',
@@ -347,6 +377,38 @@ const rejectExpense = async (req, res) => {
     })
 
     res.json({ message: 'Expense rejected.', expense })
+  } catch (error) {
+    serverError(res, error)
+  }
+}
+
+// PUT /api/finance/expenses/:id/ppa  (Chairperson) — body: { program?, project?, activity? }
+// Link (or re-link) an expense to the PPA it was spent on, e.g. expenses recorded before
+// the PPA could be chosen. Empty body = unlink. Logged with the old and new PPA.
+const linkExpensePpa = async (req, res) => {
+  try {
+    const expense = await Expense.findById(req.params.id).populate('program', 'title')
+    if (!expense) return res.status(404).json({ message: 'Expense not found.' })
+    if (expense.isVoided) return res.status(400).json({ message: 'A voided expense can’t be linked.' })
+
+    const ppa = await resolvePpa(req.body)
+    if (ppa.error) return res.status(400).json({ message: ppa.error })
+    const before = expense.program?.title || 'no PPA'
+    expense.program = ppa.program
+    expense.project = ppa.project
+    expense.activity = ppa.activity
+    await expense.save()
+    await expense.populate([{ path: 'program', select: 'title' }, { path: 'project', select: 'title' }, { path: 'activity', select: 'title' }])
+
+    const after = [expense.program?.title, expense.project?.title, expense.activity?.title].filter(Boolean).join(' › ') || 'no PPA'
+    await AuditLog.create({
+      user: req.user._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      action: 'LINK_EXPENSE_PPA',
+      details: `${req.user.firstName} ${req.user.lastName} linked expense "${expense.title}" (₱${expense.amount}) to ${after} (was: ${before})`,
+    })
+    res.json({ message: ppa.program ? `Linked to ${after}.` : 'Expense unlinked from its PPA.', expense })
   } catch (error) {
     serverError(res, error)
   }
@@ -511,7 +573,7 @@ module.exports = {
   // Funds
   getFunds, recordFund, editFund, voidFund,
   // Expenses
-  getExpenses, recordExpense, approveExpense, rejectExpense, voidExpense,
+  getExpenses, recordExpense, approveExpense, rejectExpense, voidExpense, linkExpensePpa,
   // Reports
   getSummary, getLedger, setPublishedBudget,
 }

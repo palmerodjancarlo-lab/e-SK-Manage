@@ -26,7 +26,7 @@ const SECTIONS = [
   ] },
   { id: 'people', label: 'Kabataan', items: [
     { to: '/sk/members', label: 'Member Registry', icon: Users, roles: [...CHAIR, ROLES.SECRETARY] },
-    { to: '/sk/rewards', label: 'Rewards & Points', icon: Gift, roles: ALL },
+    { to: '/sk/rewards', label: 'Rewards & Points', icon: Gift, roles: [ROLES.SECRETARY] }, // Secretary + Chairperson (Head Console)
   ] },
   { id: 'account', label: 'Account', items: [
     { to: '/sk/settings', label: 'Settings', icon: Settings, roles: ALL },

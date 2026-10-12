@@ -12,15 +12,15 @@ import {
 } from '../../components/ui';
 import { useAuth } from '../../context/auth-store';
 import { isHead } from '../../lib/roles';
-import { REPORT_STATUS_LABEL, REPORT_STATUS_TONE, REPORT_TYPE_LABEL } from '../../lib/reports';
+import { REPORT_STATUS_LABEL, REPORT_STATUS_TONE, REPORT_TYPE_LABEL, reportTitle } from '../../lib/reports';
 
 const fmt = (d) => (d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
-const routeFor = (type) => (type === 'cbydp' ? 'cbydp' : type === 'accomplishment' ? 'accomplishment' : 'abyip');
+const routeFor = (type) => (type === 'cbydp' ? 'cbydp' : type === 'accomplishment' ? 'financial' : 'abyip');
 
 const KINDS = [
   { to: 'abyip', title: 'ABYIP', icon: FileSpreadsheet, text: 'Annual Barangay Youth Investment Program — the yearly plan built from your PPAs and funds.' },
   { to: 'cbydp', title: 'CBYDP', icon: FileText, text: '3-year Comprehensive Barangay Youth Development Plan, grouped by Center of Participation.' },
-  { to: 'accomplishment', title: 'Accomplishment report', icon: BarChart3, text: 'Planned budget vs actual spending per PPA, from approved expenses.' },
+  { to: 'financial', title: 'Financial report', icon: BarChart3, text: 'Receipts, disbursements and balance for the year, with spending per PPA — from the money records.' },
 ];
 
 export default function ReportsHub() {
@@ -43,7 +43,7 @@ export default function ReportsHub() {
 
   return (
     <>
-      <PageHeader title="Plans & Reports" description="Prepare the SK’s official documents — ABYIP, CBYDP and accomplishment reports — then print or export them." />
+      <PageHeader title="Plans & Reports" description="Prepare the SK’s official documents — ABYIP, CBYDP and financial reports — then print or export them." />
 
       <div className="grid gap-4 md:grid-cols-3">
         {KINDS.map((k) => {
@@ -76,7 +76,7 @@ export default function ReportsHub() {
                 {reports.map((r) => (
                   <TR key={r._id}>
                     <TD label="Report">
-                      <Link to={`${base}/reports/${routeFor(r.type)}?id=${r._id}`} className="font-semibold text-fg hover:text-primary hover:underline">{r.title}</Link>
+                      <Link to={`${base}/reports/${routeFor(r.type)}?id=${r._id}`} className="font-semibold text-fg hover:text-primary hover:underline">{reportTitle(r)}</Link>
                       <span className="block text-xs text-subtle">{REPORT_TYPE_LABEL[r.type] || r.type}</span>
                     </TD>
                     <TD label="Status"><Badge variant={REPORT_STATUS_TONE[r.status] || 'default'}>{REPORT_STATUS_LABEL[r.status] || r.status}</Badge></TD>
@@ -88,7 +88,7 @@ export default function ReportsHub() {
                           className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-primary hover:bg-primary/5">
                           <FolderOpen aria-hidden="true" className="h-4 w-4" /> Open
                         </Link>
-                        {canDelete && <IconButton icon={Trash2} tone="danger" label={`Delete “${r.title}”`} onClick={() => setDel(r)} />}
+                        {canDelete && <IconButton icon={Trash2} tone="danger" label={`Delete “${reportTitle(r)}”`} onClick={() => setDel(r)} />}
                       </div>
                     </TD>
                   </TR>
@@ -100,7 +100,7 @@ export default function ReportsHub() {
 
       <Modal open={!!del} onClose={() => setDel(null)} title="Delete this report?"
         footer={<><Button variant="outline" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" loading={delM.isPending} onClick={() => delM.mutate(del._id)}>Delete report</Button></>}>
-        <p className="text-sm text-muted">“{del?.title}” ({REPORT_STATUS_LABEL[del?.status] || del?.status}) will be removed from Plans & Reports. This is recorded in the audit trail and can’t be undone.</p>
+        <p className="text-sm text-muted">“{reportTitle(del)}” ({REPORT_STATUS_LABEL[del?.status] || del?.status}) will be removed from Plans & Reports. This is recorded in the audit logs and can’t be undone.</p>
       </Modal>
     </>
   );

@@ -90,7 +90,7 @@ describe('register', () => {
   })
 
   test('returns 400 if email already exists', async () => {
-    User.findOne = jest.fn().mockResolvedValue(fakeUser())
+    User.findOne = jest.fn(() => ({ select: jest.fn().mockResolvedValue(fakeUser()) }))
     const res = makeRes()
     await register(makeReq(valid()), res)
     expect(res.status).toHaveBeenCalledWith(400)
@@ -98,10 +98,11 @@ describe('register', () => {
   })
 
   test('creates an unverified kabataan account and emails the code', async () => {
-    User.findOne = jest.fn().mockResolvedValue(null)
+    User.findOne = jest.fn(() => ({ select: jest.fn().mockResolvedValue(null) }))
     User.create  = jest.fn().mockImplementation(async (d) => fakeUser({ ...d, _id:'64abc777' }))
     const res = makeRes()
     await register(makeReq(valid()), res)
+    await new Promise((r) => setImmediate(r)) // the email is sent in the background
     expect(res.status).toHaveBeenCalledWith(201)
     expect(res._json.needsVerification).toBe(true)
     expect(User.create).toHaveBeenCalledWith(expect.objectContaining({ email:'mhervin@eskmanage.com', isVerified:false }))
@@ -109,7 +110,7 @@ describe('register', () => {
   })
 
   test('always forces role to kabataan', async () => {
-    User.findOne = jest.fn().mockResolvedValue(null)
+    User.findOne = jest.fn(() => ({ select: jest.fn().mockResolvedValue(null) }))
     User.create  = jest.fn().mockImplementation(async (d) => fakeUser(d))
     const res = makeRes()
     await register(makeReq(valid({ role:'sk_chairperson' })), res)

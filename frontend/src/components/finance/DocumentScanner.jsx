@@ -17,7 +17,8 @@ import api from '../../lib/api';
 import { scanDocument, isPdfFile } from '../../lib/scanDocument';
 import { Modal, Button, Input, Select, Textarea } from '../ui';
 import { cn, localDateInput } from '../../lib/utils';
-import { EXPENSE_CATEGORIES, FUND_SOURCES } from '../../lib/finance';
+import { EXPENSE_CATEGORIES, FUND_SOURCES, EMPTY_PPA } from '../../lib/finance';
+import PpaPicker from './PpaPicker';
 
 
 const peso = (n) => `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -68,6 +69,7 @@ export default function DocumentScanner({ open, kind = 'expense', onClose, onDon
   const [dragOver, setDragOver] = useState(false);
   const [previewBroken, setPreviewBroken] = useState(false);
   const [manual, setManual] = useState(false); // typed in, no document read
+  const [ppa, setPpa] = useState(EMPTY_PPA);    // expense → Program / Project / Activity
 
   const ocr = doc?.ocr || {};
   const conf = ocr.confidence || {};
@@ -103,7 +105,7 @@ export default function DocumentScanner({ open, kind = 'expense', onClose, onDon
   const reset = () => {
     stopCamera();
     setStep('pick'); setStage(''); setDoc(null); setSaving(false); setPreviewBroken(false); setManual(false);
-    setLocalPreview(''); setForm({}); setItems([blankItem()]);
+    setLocalPreview(''); setForm({}); setItems([blankItem()]); setPpa(EMPTY_PPA);
   };
   const close = () => { reset(); onClose?.(); };
 
@@ -213,6 +215,7 @@ export default function DocumentScanner({ open, kind = 'expense', onClose, onDon
           dateSpent: form.dateSpent, receiptDate: form.dateSpent, receiptNumber: form.receiptNumber.trim(),
           notes: form.notes.trim(), amount: total, items: clean,
           source: doc ? 'scanned' : 'manual', receiptPhoto: doc?.url || '',
+          program: ppa.program || undefined, project: ppa.project || undefined, activity: ppa.activity || undefined,
         });
         toast.success('Expense recorded — waiting for the Chairperson’s approval.');
       } else {
@@ -339,6 +342,8 @@ export default function DocumentScanner({ open, kind = 'expense', onClose, onDon
                     {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{capital(c)}</option>)}
                   </Select>
                 </div>
+
+                <PpaPicker value={ppa} onChange={setPpa} />
 
                 <fieldset>
                   <legend className="mb-2 flex w-full items-center justify-between text-sm font-medium text-muted">

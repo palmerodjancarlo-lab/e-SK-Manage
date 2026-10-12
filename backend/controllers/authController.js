@@ -5,12 +5,30 @@ const serverError = require('../utils/serverError')
 const AuditLog = require('../models/AuditLog')
 const jwt      = require('jsonwebtoken')
 const crypto   = require('crypto')
-const { sendVerificationEmail, sendResetEmail, sendEmailChangeCode, sendEmailChangedNotice } = require('../utils/sendEmail')
+const { sendVerificationEmail, sendResetEmail, sendEmailChangeCode, sendEmailChangedNotice, CODE_MINUTES } = require('../utils/sendEmail')
 const { streamIdDocument } = require('../utils/idDocuments')
 const cleanupUser = require('../utils/cleanupUser')
 
 // Generate a 6-digit code from a cryptographically secure source
 const genCode = () => String(crypto.randomInt(100000, 1000000))
+
+const CODE_TTL = (Number(CODE_MINUTES) || 15) * 60 * 1000
+const RESEND_GAP_SECONDS = 30
+
+// Keep the current code while it still has a few minutes left, so every email sent
+// (first one, resends, a slow one arriving late) carries the SAME code and any works.
+// Returns { code, fresh } — fresh means the attempt counter should restart.
+const keepOrNewCode = (current, expires) => (
+  current && expires && new Date(expires).getTime() - Date.now() > 3 * 60 * 1000
+    ? { code: current, fresh: false }
+    : { code: genCode(), fresh: true }
+)
+
+// Send an email without making the person wait for Gmail. The code is already saved,
+// so if delivery is slow or fails they can press "Resend code".
+const sendLater = (label, sending) => {
+  Promise.resolve().then(sending).catch((err) => console.error(`[email] ${label} failed:`, err.message))
+}
 
 // A code is thrown away after this many wrong guesses, so it cannot be brute-forced
 const OTP_MAX_ATTEMPTS = 5
@@ -69,46 +87,47 @@ const register = async (req, res) => {
       return res.status(400).json({ message: 'SK membership is for ages 15 to 30. Please check your birthdate.' })
     }
 
-    const exists = await User.findOne({ email })
-    if (exists) {
+    const details = {
+      firstName, lastName, password,
+      contactNumber: contactNumber || '', address: address || '', purok: purok || '',
+      sex: sex || '', isPWD: !!isPWD, birthDate: birthDate || null, civilStatus: civilStatus || '',
+    }
+
+    const existing = await User.findOne({ email }).select('+verificationCode +verificationExpires')
+    if (existing && (existing.isVerified || existing.role !== 'kabataan')) {
       return res.status(400).json({ message: 'Email is already registered.' })
     }
 
-    // Generate verification code (valid 10 minutes)
-    const code = genCode()
-    const expires = new Date(Date.now() + 10 * 60 * 1000)
-
-    // Always kabataan — created UNVERIFIED until they enter the emailed code
-    const user = await User.create({
-      firstName,
-      lastName,
-      email,
-      password,
-      role:         'kabataan',
-      municipality: 'Santa Cruz',
-      barangay:     'Tawiran',
-      contactNumber: contactNumber || '',
-      address:       address || '',
-      purok:         purok || '',
-      sex:           sex || '',
-      isPWD:         !!isPWD,
-      birthDate:     birthDate || null,
-      civilStatus:   civilStatus || '',
-      isVerified:          false,
-      isActive:            true,
-      verificationCode:    code,
-      verificationExpires: expires,
-      verificationAttempts: 0,
-    })
-
-    // Send the code to their email
-    try {
-      await sendVerificationEmail(user.email, user.firstName, code)
-    } catch (mailErr) {
-      // If email fails, delete the half-created account so they can retry
-      await User.findByIdAndDelete(user._id)
-      return res.status(500).json({ message: 'Could not send verification email. Please check the address and try again.' })
+    let user
+    if (existing) {
+      // A registration that was never finished (the code was never entered, often because the
+      // email was slow). Update it with the new details and send the code again instead of refusing.
+      const { code, fresh } = keepOrNewCode(existing.verificationCode, existing.verificationExpires)
+      Object.assign(existing, details, {
+        verificationCode: code, verificationExpires: new Date(Date.now() + CODE_TTL), verificationSentAt: new Date(),
+      })
+      if (fresh) existing.verificationAttempts = 0
+      user = await existing.save()
+    } else {
+      // Always kabataan, created UNVERIFIED until they enter the emailed code
+      user = await User.create({
+        ...details,
+        email,
+        role:         'kabataan',
+        municipality: 'Santa Cruz',
+        barangay:     'Tawiran',
+        isVerified:          false,
+        isActive:            true,
+        verificationCode:    genCode(),
+        verificationExpires: new Date(Date.now() + CODE_TTL),
+        verificationSentAt:  new Date(),
+        verificationAttempts: 0,
+      })
     }
+
+    // Send the code in the background: it's saved already, so the person goes straight to
+    // "Enter your code" instead of waiting on Gmail (and can press Resend if it's slow).
+    sendLater('verification code', () => sendVerificationEmail(user.email, user.firstName, user.verificationCode))
 
     await AuditLog.create({
       user:    user._id,
@@ -384,23 +403,31 @@ const resendCode = async (req, res) => {
     const email = normEmail(req.body.email)
     if (!email) return res.status(400).json({ message: 'Email is required.' })
 
-    const user = await User.findOne({ email }).select('+verificationCode +verificationExpires')
+    const user = await User.findOne({ email }).select('+verificationCode +verificationExpires +verificationSentAt')
     if (!user) return res.status(404).json({ message: 'Account not found.' })
     if (user.isVerified) return res.status(400).json({ message: 'This account is already verified.' })
 
-    const code = genCode()
-    user.verificationCode = code
-    user.verificationExpires = new Date(Date.now() + 10 * 60 * 1000)
-    user.verificationAttempts = 0
-    await user.save()
-
-    try {
-      await sendVerificationEmail(user.email, user.firstName, code)
-    } catch (mailErr) {
-      return res.status(500).json({ message: 'Could not send the email. Please try again shortly.' })
+    // One email at a time: tapping Resend repeatedly only floods the inbox
+    const waited = user.verificationSentAt ? (Date.now() - new Date(user.verificationSentAt).getTime()) / 1000 : Infinity
+    if (waited < RESEND_GAP_SECONDS) {
+      const retryAfter = Math.ceil(RESEND_GAP_SECONDS - waited)
+      return res.status(429).json({ message: `Please wait ${retryAfter} seconds before asking again.`, retryAfter })
     }
 
-    res.json({ message: 'A new code is on the way. Check your email.' })
+    // Same code as before while it's still valid, so earlier emails keep working too
+    const { code, fresh } = keepOrNewCode(user.verificationCode, user.verificationExpires)
+    user.verificationCode = code
+    user.verificationExpires = new Date(Date.now() + CODE_TTL)
+    user.verificationSentAt = new Date()
+    if (fresh) user.verificationAttempts = 0
+    await user.save()
+
+    sendLater('verification code (resend)', () => sendVerificationEmail(user.email, user.firstName, code))
+
+    res.json({
+      message: fresh ? 'A new code is on the way. Check your email.' : 'We sent your code again. It is the same code as before.',
+      retryAfter: RESEND_GAP_SECONDS, sameCode: !fresh, expiresInMinutes: CODE_MINUTES,
+    })
   } catch (error) {
     serverError(res, error)
   }
@@ -413,23 +440,27 @@ const forgotPassword = async (req, res) => {
     const email = normEmail(req.body.email)
     if (!email) return res.status(400).json({ message: 'Email is required.' })
 
-    const user = await User.findOne({ email })
+    const user = await User.findOne({ email }).select('+resetCode +resetExpires +resetSentAt')
     // For privacy, respond the same whether or not the account exists
     if (!user) {
       return res.json({ message: 'If that email is registered, a reset code is on the way.' })
     }
 
-    const code = genCode()
+    // Quietly skip repeat requests within the resend gap (same answer, no extra email)
+    const waited = user.resetSentAt ? (Date.now() - new Date(user.resetSentAt).getTime()) / 1000 : Infinity
+    if (waited < RESEND_GAP_SECONDS) {
+      return res.json({ message: 'If that email is registered, a reset code is on the way.', retryAfter: Math.ceil(RESEND_GAP_SECONDS - waited) })
+    }
+
+    // Same code while it's still valid, so a slow first email still works
+    const { code, fresh } = keepOrNewCode(user.resetCode, user.resetExpires)
     user.resetCode = code
-    user.resetExpires = new Date(Date.now() + 10 * 60 * 1000)
-    user.resetAttempts = 0
+    user.resetExpires = new Date(Date.now() + CODE_TTL)
+    user.resetSentAt = new Date()
+    if (fresh) user.resetAttempts = 0
     await user.save()
 
-    try {
-      await sendResetEmail(user.email, user.firstName, code)
-    } catch (mailErr) {
-      return res.status(500).json({ message: 'Could not send the email. Please try again shortly.' })
-    }
+    sendLater('password reset code', () => sendResetEmail(user.email, user.firstName, code))
 
     await AuditLog.create({
       user: user._id, action: 'FORGOT_PASSWORD',

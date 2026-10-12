@@ -4,7 +4,8 @@ const ctrl      = require('../controllers/pointsController')
 const { protect } = require('../middleware/authMiddleware')
 const authorize   = require('../middleware/authorize')
 
-const SK_AWARD = ['admin','sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']
+// Awarding points: SK Chairperson and SK Secretary only
+const SK_AWARD = ['admin','sk_chairperson','sk_secretary']
 
 // Named routes before parameterized ones
 router.get('/my',          protect, ctrl.getMyPoints)

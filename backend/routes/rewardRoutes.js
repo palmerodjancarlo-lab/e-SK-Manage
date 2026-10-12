@@ -9,7 +9,8 @@ const {
   requestRedemption, myRedemptions, cancelRedemption, listRedemptions, claimRedemption, rejectRedemption,
 } = require('../controllers/redemptionController')
 
-const SK_MANAGE = ['admin','sk_chairperson','sk_secretary','sk_treasurer','sk_kagawad']
+// Rewards, point awards and reward pickups: SK Chairperson and SK Secretary only
+const SK_MANAGE = ['admin','sk_chairperson','sk_secretary']
 
 // Redemptions — named paths before /:id
 router.get('/redemptions/mine',        protect, authorize('kabataan'), myRedemptions)

@@ -22,8 +22,8 @@ const ATTEND  = ['admin','sk_chairperson','sk_secretary','sk_treasurer','sk_kaga
 router.get('/public', getPublicPrograms)
 
 // ── Programs
-router.get('/',      protect, getPrograms)       // all authenticated
-router.get('/:id',   protect, getProgram)
+router.get('/',      protect, authorize(...SK_ALL), getPrograms)       // officers; kabataan use /public (no budgets)
+router.get('/:id',   protect, authorize(...SK_ALL), getProgram)
 router.post('/',     protect, authorize(...MANAGE), createProgram)
 router.put('/:id',   protect, authorize(...MANAGE), updateProgram)
 router.delete('/:id',protect, authorize(...MANAGE), deleteProgram)
@@ -35,13 +35,13 @@ router.post('/:id/documents',              protect, authorize(...MANAGE), addDoc
 router.delete('/:id/documents/:docId',     protect, authorize(...MANAGE), deleteDocument)
 
 // ── Projects under a program
-router.get('/:programId/projects',   protect, getProjects)
+router.get('/:programId/projects',   protect, authorize(...SK_ALL), getProjects)
 router.post('/:programId/projects',  protect, authorize(...MANAGE), createProject)
 router.put('/projects/:id',          protect, authorize(...MANAGE), updateProject)
 router.delete('/projects/:id',       protect, authorize(...MANAGE), deleteProject)
 
 // ── Activities under a project
-router.get('/projects/:projectId/activities',  protect, getActivities)
+router.get('/projects/:projectId/activities',  protect, authorize(...SK_ALL), getActivities)
 router.post('/projects/:projectId/activities', protect, authorize(...MANAGE), createActivity)
 router.put('/activities/:id',                  protect, authorize(...MANAGE), updateActivity)
 router.delete('/activities/:id',               protect, authorize(...MANAGE), deleteActivity)

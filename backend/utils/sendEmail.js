@@ -4,13 +4,32 @@
 
 const nodemailer = require('nodemailer')
 
+// One pooled connection to Gmail that stays open between emails, so each code doesn't
+// pay for a fresh connect + TLS + login. Timeouts stop a stuck connection from hanging.
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  pool: true,
+  maxConnections: 3,
+  connectionTimeout: 15000,
+  greetingTimeout: 10000,
+  socketTimeout: 30000,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
 })
+
+// How long emailed codes stay valid (verification, password reset)
+const CODE_MINUTES = 15
+
+// Plain-text copy of an HTML body (sent alongside it — better delivery, readable previews)
+const toText = (html) => html
+  .replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|h1|h2|li)>/gi, '\n')
+  .replace(/<[^>]+>/g, '')
+  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+  .replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim()
 
 // User-supplied text (names, addresses) must never be interpreted as HTML.
 const esc = (v = '') => String(v).replace(/[&<>"']/g, (c) => (
@@ -42,6 +61,7 @@ const send = (to, subject, body) => transporter.sendMail({
   to,
   subject,
   html: layout(body),
+  text: `${toText(body)}\n\n— e-SK Manage · Sangguniang Kabataan ng Barangay Tawiran`,
 })
 
 // Account verification code (registration)
@@ -51,7 +71,7 @@ const sendVerificationEmail = (to, firstName, code) => send(
   greeting(firstName)
     + p('Use this code to verify your email and finish creating your account:')
     + codeBlock(code)
-    + footnote("This code expires in 10 minutes.<br/>If you didn't request this, you can ignore this email."),
+    + footnote(`This code expires in ${CODE_MINUTES} minutes. If you asked for it more than once, every email has the same code.<br/>If you didn't request this, you can ignore this email.`),
 )
 
 // Password-reset code
@@ -61,7 +81,7 @@ const sendResetEmail = (to, firstName, code) => send(
   greeting(firstName)
     + p('We got a request to reset your password. Enter this code to set a new one:')
     + codeBlock(code)
-    + footnote("This code expires in 10 minutes.<br/>If you didn't request this, you can safely ignore this email — your password won't change."),
+    + footnote(`This code expires in ${CODE_MINUTES} minutes.<br/>If you didn't request this, you can safely ignore this email — your password won't change.`),
 )
 
 // Code sent to the NEW address when a user changes their email
@@ -111,6 +131,7 @@ const sendResidencyRemovedEmail = (to, firstName) => send(
 )
 
 module.exports = {
+  CODE_MINUTES,
   sendVerificationEmail, sendResetEmail, sendEmailChangeCode, sendEmailChangedNotice,
   sendResidencyVerifiedEmail, sendResidencyRemovedEmail,
 }

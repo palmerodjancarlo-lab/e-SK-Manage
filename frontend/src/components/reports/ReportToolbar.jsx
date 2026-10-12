@@ -1,4 +1,4 @@
-// Header + actions shared by the ABYIP, CBYDP and Accomplishment pages.
+// Header + actions shared by the ABYIP, CBYDP and Financial report pages.
 // Guards unsaved edits: refreshing from records or switching the period asks first.
 import { useState } from 'react';
 import { Link } from 'react-router-dom';

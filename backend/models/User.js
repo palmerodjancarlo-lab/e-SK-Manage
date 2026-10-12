@@ -123,9 +123,11 @@ const UserSchema = new mongoose.Schema({
   // Email verification code
   verificationCode:    { type:String, select:false },
   verificationExpires: { type:Date,   select:false },
+  verificationSentAt:  { type:Date,   select:false },   // last time a code email was sent (resend throttle)
   // Password reset code
   resetCode:    { type:String, select:false },
   resetExpires: { type:Date,   select:false },
+  resetSentAt:  { type:Date,   select:false },
   // Wrong guesses against the current code — the code is discarded after OTP_MAX_ATTEMPTS
   verificationAttempts: { type:Number, default:0, select:false },
   resetAttempts:        { type:Number, default:0, select:false },

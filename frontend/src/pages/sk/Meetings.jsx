@@ -95,7 +95,7 @@ export default function SKMeetings() {
               <Button size="sm" variant={live ? 'primary' : 'outline'} onClick={() => setQr(m)}><QrCode className="h-4 w-4" /> {live ? 'Show QR' : 'QR check-in'}</Button>
               <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'checkins' })}><Users className="h-4 w-4" /> Attendance</Button>
               {m.needsVolunteers && <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'volunteers' })}><HandHeart className="h-4 w-4" /> Volunteers</Button>}
-              <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'comments' })}><MessageSquare className="h-4 w-4" /> Saloobin</Button>
+              <Button size="sm" variant="outline" onClick={() => setManage({ id: m._id, tab: 'comments' })}><MessageSquare className="h-4 w-4" /> Feedback{(m.comments || []).length ? ` · ${m.comments.length}` : ''}</Button>
               {/* minutes are written once the meeting has started */}
               {(m.minutes?.text || new Date(m.date).getTime() <= now) && (
                 <Button size="sm" variant="outline" onClick={() => setMinutesId(m._id)}><FileText className="h-4 w-4" /> {m.minutes?.text ? 'Minutes' : canWriteMinutes ? 'Write minutes' : 'Minutes'}</Button>
@@ -109,7 +109,7 @@ export default function SKMeetings() {
 
   return (
     <>
-      <PageHeader title="Meetings & Events" description="Schedule council meetings and youth activities, run QR check-in, and read the kabataan’s saloobin."
+      <PageHeader title="Meetings & Events" description="Schedule council meetings and youth activities, run QR check-in, keep attendance, and read the kabataan’s feedback."
         actions={<Button onClick={openNew}><Plus className="h-4 w-4" /> New event</Button>} />
 
       <div className="mb-5 inline-flex flex-wrap gap-1 rounded-xl bg-surface2 p-1" role="group" aria-label="Show">
@@ -285,7 +285,7 @@ function ManageModal({ id, initialTab, onClose }) {
   const tabs = [
     { k: 'checkins', label: `Attendance (${checkedIn.length})` },
     ...(m.needsVolunteers ? [{ k: 'volunteers', label: `Volunteers (${volunteers.length})` }] : []),
-    { k: 'comments', label: `Saloobin (${comments.length})` },
+    { k: 'comments', label: `Feedback (${comments.length})` },
   ];
 
   return (
@@ -322,7 +322,7 @@ function ManageModal({ id, initialTab, onClose }) {
               )}
           </>
         ) : (
-          comments.length === 0 ? <EmptyState icon={MessageSquare} title="No saloobin yet" description="Reflections from kabataan after the event appear here." />
+          comments.length === 0 ? <EmptyState icon={MessageSquare} title="No feedback yet" description="Feedback from kabataan appears here once the event starts." />
             : (
               <div className="max-h-[55vh] space-y-2 overflow-y-auto">
                 {comments.map((c) => (

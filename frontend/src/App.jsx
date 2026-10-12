@@ -35,7 +35,7 @@ import SKAnnouncements from './pages/sk/Announcements';
 import SKMeetings from './pages/sk/Meetings';
 import AbyipReport from './pages/sk/AbyipReport';
 import CbydpReport from './pages/sk/CbydpReport';
-import AccomplishmentReport from './pages/sk/AccomplishmentReport';
+import FinancialReport from './pages/sk/FinancialReport';
 import ReportsHub from './pages/sk/ReportsHub';
 import AttendanceSummary from './pages/shared/AttendanceSummary';
 import SKSettings from './pages/sk/Settings';
@@ -86,7 +86,8 @@ export default function App() {
         <Route path="reports" element={<ReportsHub />} />
         <Route path="reports/abyip" element={<AbyipReport />} />
         <Route path="reports/cbydp" element={<CbydpReport />} />
-        <Route path="reports/accomplishment" element={<AccomplishmentReport />} />
+        <Route path="reports/financial" element={<FinancialReport />} />
+        <Route path="reports/accomplishment" element={<FinancialReport />} /> {/* old address — renamed to Financial report */}
       </Route>
 
       {/* SK Officers */}
@@ -97,12 +98,14 @@ export default function App() {
         <Route path="attendance" element={<AttendanceSummary />} />
         <Route path="finance" element={<SKFinance />} />
         <Route path="programs" element={<SKPrograms />} />
-        <Route path="rewards" element={<SKRewards />} />
+        {/* Rewards & Points belong to the SK Secretary (the Chairperson has them in the Head Console) */}
+        <Route path="rewards" element={<ProtectedRoute allow={[ROLES.SECRETARY]}><SKRewards /></ProtectedRoute>} />
         <Route path="members" element={<SKMembers />} />
         <Route path="reports" element={<ReportsHub />} />
         <Route path="reports/abyip" element={<AbyipReport />} />
         <Route path="reports/cbydp" element={<CbydpReport />} />
-        <Route path="reports/accomplishment" element={<AccomplishmentReport />} />
+        <Route path="reports/financial" element={<FinancialReport />} />
+        <Route path="reports/accomplishment" element={<FinancialReport />} /> {/* old address — renamed to Financial report */}
         <Route path="settings" element={<SKSettings />} />
       </Route>
 

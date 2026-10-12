@@ -1,4 +1,4 @@
-// cspell:words kabataan Tawiran Barangay Kumusta
+// cspell:words kabataan Tawiran Barangay
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -130,8 +130,12 @@ function NextEvent({ m, userId }) {
   );
 }
 
+// Greeting by time of day, same as the consoles
+const greetingFor = (h) => (h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening');
+
 export default function KabHome() {
   const { user } = useAuth();
+  const [greeting] = useState(() => greetingFor(new Date().getHours()));
   const [detail, setDetail] = useState(null);
 
   const profile = useQuery({ queryKey: ['profile'], queryFn: async () => (await api.get('/auth/profile')).data.user });
@@ -168,7 +172,7 @@ export default function KabHome() {
           <div className="flex items-center gap-4">
             <Avatar name={`${user?.firstName || ''} ${user?.lastName || ''}`} src={p?.photo || user?.photo} size="lg" className="hidden sm:inline-flex" />
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-fg sm:text-3xl">Kumusta, {user?.firstName || 'Kabataan'}!</h1>
+              <h1 className="text-2xl font-bold text-fg sm:text-3xl">{greeting}, {user?.firstName || 'Kabataan'}!</h1>
               <p className="mt-1 text-sm text-muted">
                 {events.length ? `${events.length} upcoming ${events.length === 1 ? 'event' : 'events'} — join one to earn points.` : 'Watch this space for the next SK event.'}
               </p>

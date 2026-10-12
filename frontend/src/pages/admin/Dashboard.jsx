@@ -276,7 +276,7 @@ export default function AdminDashboard() {
       <div className="grid gap-4 lg:grid-cols-3 [&>*]:min-w-0">
         <Card className="lg:col-span-2">
           <CardContent>
-            <SectionTitle icon={Activity} to="/admin/logs" linkLabel="Audit trail">Recent activity</SectionTitle>
+            <SectionTitle icon={Activity} to="/admin/logs" linkLabel="Audit logs">Recent activity</SectionTitle>
             {logsQ.isLoading ? (
               <div className="flex justify-center py-8"><Spinner className="h-6 w-6 text-primary" /></div>
             ) : logs.length === 0 ? (

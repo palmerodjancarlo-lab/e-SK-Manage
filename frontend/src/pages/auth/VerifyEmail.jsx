@@ -17,7 +17,9 @@ export default function VerifyEmail() {
   const [email, setEmail] = useState(stateEmail);
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
+  // A code was just emailed when we arrive from Register / Sign in, so start with a short wait
+  const [cooldown, setCooldown] = useState(stateEmail ? 30 : 0);
+  const [resending, setResending] = useState(false);
   const timer = useRef(null);
 
   useEffect(() => {
@@ -44,12 +46,18 @@ export default function VerifyEmail() {
 
   const resend = async () => {
     if (!email) return toast.error('Enter your email first.');
+    if (resending || cooldown > 0) return;
+    setResending(true);
     try {
-      await resendCode(email.trim().toLowerCase());
-      toast.success('A new code is on the way.');
-      setCooldown(45);
+      const data = await resendCode(email.trim().toLowerCase());
+      toast.success(data?.message || 'Your code is on the way.', { duration: 6000 });
+      setCooldown(data?.retryAfter || 30);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Could not resend the code.');
+      const retry = err.response?.data?.retryAfter;
+      if (retry) setCooldown(retry);
+      toast.error(err.response?.data?.message || 'Could not resend the code. Check your connection and try again.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -60,9 +68,12 @@ export default function VerifyEmail() {
       footer={<Link to="/login" className="font-semibold text-primary hover:underline">Back to sign in</Link>}
     >
       <form onSubmit={submit} className="space-y-5">
-        <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary">
-          <MailCheck className="h-5 w-5 shrink-0" />
-          Check your email (including spam) for the code. It expires in 10 minutes.
+        <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-fg">
+          <MailCheck aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div>
+            {stateEmail ? <>We sent a code to <b className="break-all">{stateEmail}</b>.</> : 'Enter the email you registered with and the code we sent to it.'}
+            <span className="mt-1 block text-muted">It can take a few minutes to arrive, so check Spam or Promotions too. The code works for 15 minutes, and resending sends the <b className="text-fg">same code</b>, so any of the emails will work.</span>
+          </div>
         </div>
 
         {!stateEmail && (
@@ -78,10 +89,11 @@ export default function VerifyEmail() {
 
         <div className="text-center text-sm text-muted">
           Didn't get it?{' '}
-          <button type="button" onClick={resend} disabled={cooldown > 0}
+          <button type="button" onClick={resend} disabled={cooldown > 0 || resending}
             className="font-semibold text-primary hover:underline disabled:opacity-50 disabled:no-underline">
-            {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}
+            {resending ? 'Sending…' : cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}
           </button>
+          {stateEmail && <span className="mt-1 block text-xs">Wrong email? <Link to="/register" className="font-semibold text-primary hover:underline">Register again</Link> with the right one.</span>}
         </div>
       </form>
     </AuthLayout>

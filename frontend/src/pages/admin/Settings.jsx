@@ -34,7 +34,7 @@ const TABS = [
 
 // Mirrors the permission lists in backend/routes — keep the two in step
 const ROLES_INFO = [
-  { role: 'SK Chairperson', color: 'bg-[#0038A8]', perms: ['Full oversight of the system', 'Manage accounts and verify residents', 'Record funds; approve, reject and void expenses', 'Create programs and projects', 'View the audit trail'] },
+  { role: 'SK Chairperson', color: 'bg-[#0038A8]', perms: ['Full oversight of the system', 'Manage accounts and verify residents', 'Record funds; approve, reject and void expenses', 'Create programs and projects', 'View the audit logs'] },
   { role: 'SK Secretary', color: 'bg-sky-600', perms: ['Post announcements', 'Schedule meetings and take attendance (QR)', 'Manage rewards and award points', 'Add program photos and attendance', 'View finance records'] },
   { role: 'SK Treasurer', color: 'bg-emerald-600', perms: ['Record expenses (scan or manual)', 'Prepare financial reports', 'Schedule meetings and take attendance', 'Manage rewards and award points', 'View finance records'] },
   { role: 'SK Kagawad', color: 'bg-amber-600', perms: ['Schedule meetings and take attendance', 'Manage rewards and award points', 'Add program photos and attendance', 'View finance records'] },
@@ -206,7 +206,7 @@ function SystemPanel({ q }) {
   const ACTIONS = [
     { to: '/admin/users', icon: Users, label: 'Verify members', sub: 'Review residency documents', badge: c.pendingVerification },
     { to: '/admin/create-sk', icon: UserPlus, label: 'Create SK account', sub: 'Add an officer' },
-    { to: '/admin/logs', icon: ScrollText, label: 'Audit trail', sub: 'Everything that happened' },
+    { to: '/admin/logs', icon: ScrollText, label: 'Audit logs', sub: 'Everything that happened' },
   ];
 
   return (

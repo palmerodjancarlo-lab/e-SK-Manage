@@ -3,9 +3,10 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QRCodeCanvas } from 'qrcode.react';
 import toast from 'react-hot-toast';
-import { Plus, Pencil, Trash2, QrCode, Users, Calendar, Power, HandHeart, MapPin, Clock, Star, CalendarClock, CheckCircle2, Radio, FileText } from 'lucide-react';
+import { Plus, Pencil, Trash2, QrCode, Users, Calendar, Power, HandHeart, MapPin, Clock, Star, CalendarClock, CheckCircle2, Radio, FileText, MessageSquare } from 'lucide-react';
 import MinutesModal from '../../components/events/MinutesModal';
 import AttendancePanel from '../../components/events/AttendancePanel';
+import FeedbackModal from '../../components/events/FeedbackModal';
 import api from '../../lib/api';
 import {
   PageHeader, Card, CardContent, Spinner, Badge, Button, Input, Textarea, Select,
@@ -27,6 +28,7 @@ export default function Meetings() {
   const [del, setDel] = useState(null);
   const [vol, setVol] = useState(null);
   const [attend, setAttend] = useState(null); // meeting whose attendance is open
+  const [feedbackFor, setFeedbackFor] = useState(null);
   const [params, setParams] = useSearchParams();
   const [minutesId, setMinutesId] = useState(() => params.get('minutes'));
 
@@ -81,6 +83,7 @@ export default function Meetings() {
             <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
               <Button size="sm" variant={m.qrActive ? 'primary' : 'outline'} onClick={() => setQr(m)}><QrCode className="h-4 w-4" /> {m.qrActive ? 'Show QR' : 'QR check-in'}</Button>
               <Button size="sm" variant="outline" onClick={() => setAttend(m)}><Users className="h-4 w-4" /> Attendance</Button>
+              <Button size="sm" variant="outline" onClick={() => setFeedbackFor(m)}><MessageSquare className="h-4 w-4" /> Feedback{(m.comments || []).length ? ` · ${m.comments.length}` : ''}</Button>
               {m.needsVolunteers && <Button size="sm" variant="outline" onClick={() => setVol(m)}><HandHeart className="h-4 w-4" /> Volunteers</Button>}
               {(m.minutes?.text || new Date(m.date).getTime() <= now + 864e5) && (
                 <Button size="sm" variant="outline" onClick={() => setMinutesId(m._id)}><FileText className="h-4 w-4" /> {m.minutes?.text ? 'Minutes' : 'Write minutes'}</Button>
@@ -143,6 +146,8 @@ export default function Meetings() {
           onClose={() => { setMinutesId(null); if (params.get('minutes')) setParams({}, { replace: true }); }} />
       )}
       {vol && <VolunteersModal meeting={vol} onClose={() => setVol(null)} />}
+      <FeedbackModal officer meetingId={feedbackFor?._id} meetingTitle={feedbackFor?.title} open={!!feedbackFor}
+        onClose={() => { setFeedbackFor(null); refresh(); }} />
       {attend && (
         <Modal open onClose={() => setAttend(null)} size="lg" title={`Attendance · ${attend.title}`}
           description={new Date(attend.date).toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}

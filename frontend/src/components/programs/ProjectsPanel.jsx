@@ -264,7 +264,7 @@ function AttendanceModal({ activity, onClose, onDone }) {
     },
     onError: (e) => toast.error(errMsg(e, 'Could not record attendance.')),
   });
-  // Fetch with ?export=1 (written to the audit trail), then build the file
+  // Fetch with ?export=1 (written to the audit logs), then build the file
   const [busy, setBusy] = useState('');
   const exportSheet = async (kind) => {
     setBusy(kind);

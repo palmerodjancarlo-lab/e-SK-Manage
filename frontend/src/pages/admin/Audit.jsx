@@ -1,4 +1,4 @@
-// src/pages/admin/Audit.jsx — Security & Activity Center (Head Console)
+// src/pages/admin/Audit.jsx — Audit Logs (Head Console)
 // Tabs show DISTINCT, non-overlapping slices, matched by keyword so they work
 // regardless of the exact action strings the backend stores:
 //   Audit Records   → budget in & out (funds, expenses) with amounts  [finance]
@@ -13,7 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Search, ShieldCheck, ShieldAlert, AlertTriangle, LogIn, LogOut, ScrollText,
   X, ChevronLeft, ChevronRight, Monitor, MapPin, Clock, CheckCircle2,
-  Wallet, Activity as ActivityIcon, ArrowDownLeft, ArrowUpRight, FileText, Filter,
+  Wallet, Activity as ActivityIcon, ArrowDownLeft, ArrowUpRight, FileText, Filter, Info,
 } from 'lucide-react';
 import api from '../../lib/api';
 import { Card, CardContent, Spinner, Avatar, Table, THead, TBody, TR, TH, TD } from '../../components/ui';
@@ -40,11 +40,33 @@ function bucketOf(action = '') {
   if (RX_FIN.test(action)) return 'finance';
   return 'activity';
 }
+// Only actions that actually change the balance get a flow. Recording an expense is just a
+// request — the money leaves when the Chairperson approves it — so it must not show as "Out"
+// next to the approval (that looked like the same amount was deducted twice).
+const FLOW = {
+  RECORD_FUND: 'in',          // money received
+  APPROVE_EXPENSE: 'out',     // money spent (this is the deduction)
+  VOID_EXPENSE: 'returned',   // an approved expense cancelled — back in the balance
+  VOID_FUND: 'reversed',      // a recorded fund cancelled — taken out of the balance
+  RECORD_EXPENSE: 'pending',  // waiting for approval — nothing deducted yet
+}
 function directionOf(action = '') {
-  if (RX_OUT.test(action)) return 'out';
-  if (RX_IN.test(action)) return 'in';
+  const key = String(action).toUpperCase()
+  if (key in FLOW) return FLOW[key];
+  // other finance actions (edit, reject, link to PPA, publish budget…) don't move money
+  if (/REJECT|EDIT|LINK|PUBLISH|UPDATE|REPORT/.test(key)) return null;
+  if (RX_OUT.test(key)) return 'out';
+  if (RX_IN.test(key)) return 'in';
   return null;
 }
+const SIGN = { in: '+', returned: '+', out: '−', reversed: '−' };
+const FLOW_BADGE = {
+  in: { label: 'In', cls: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400', icon: 'in', tip: 'Money received' },
+  returned: { label: 'Returned', cls: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400', icon: 'in', tip: 'A voided expense — the money is back in the balance' },
+  out: { label: 'Out', cls: 'bg-rose-500/12 text-rose-600 dark:text-rose-400', icon: 'out', tip: 'Money spent — deducted from the balance' },
+  reversed: { label: 'Reversed', cls: 'bg-rose-500/12 text-rose-600 dark:text-rose-400', icon: 'out', tip: 'A voided fund — removed from the balance' },
+  pending: { label: 'Pending', cls: 'bg-surface2 text-muted', icon: 'pending', tip: 'Waiting for approval — not deducted yet' },
+};
 const labelOf = (a = '') => a.toString().replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 
 // ---- robust amount extraction (real fields → nested boxes → details text) ----
@@ -258,7 +280,7 @@ export default function SecurityCenter() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-extrabold text-fg">Security &amp; Activity Center</h2>
+        <h1 className="text-2xl font-extrabold text-fg">Audit Logs</h1>
         <p className="text-sm text-muted">Each tab shows a different, non-overlapping record of what happens in e-SK Manage.</p>
       </div>
 
@@ -305,6 +327,10 @@ export default function SecurityCenter() {
           <Empty icon={<Wallet className="h-6 w-6" />} title="No financial records yet" desc="Funds coming in and expenses going out will appear here once they are recorded." />
         ) : (
           <div className="space-y-4">
+            <p className="flex items-start gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-muted">
+              <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>Only <b className="text-fg">recorded funds</b> (In) and <b className="text-fg">approved expenses</b> (Out) change the balance. A recorded expense is a request — it shows as <b className="text-fg">Pending</b> in grey and is deducted once, when approved.</span>
+            </p>
             <Table label="Financial audit records" stack>
                 <THead><TR>
                   <TH>Record ID</TH><TH>User</TH><TH>Action</TH><TH>Flow</TH><TH className="text-right">Amount</TH><TH>When</TH>
@@ -317,12 +343,16 @@ export default function SecurityCenter() {
                       <TD label="User" className="font-semibold">{l._actor}</TD>
                       <TD label="Action">{l._label}</TD>
                       <TD label="Flow">
-                        {l._dir === 'in' && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400"><ArrowDownLeft className="h-3 w-3" /> In</span>}
-                        {l._dir === 'out' && <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/12 px-2 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400"><ArrowUpRight className="h-3 w-3" /> Out</span>}
-                        {!l._dir && <span className="text-xs text-subtle">—</span>}
+                        {FLOW_BADGE[l._dir] ? (
+                          <span title={FLOW_BADGE[l._dir].tip} className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold', FLOW_BADGE[l._dir].cls)}>
+                            {FLOW_BADGE[l._dir].icon === 'in' ? <ArrowDownLeft className="h-3 w-3" /> : FLOW_BADGE[l._dir].icon === 'out' ? <ArrowUpRight className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                            {FLOW_BADGE[l._dir].label}
+                          </span>
+                        ) : <span className="text-xs text-subtle">—</span>}
                       </TD>
-                      <TD label="Amount" className={cn('whitespace-nowrap text-right font-bold tabular-nums', l._dir === 'out' ? 'text-danger' : l._dir === 'in' ? 'text-success' : 'text-fg')}>
-                        {l._amount != null ? `${l._dir === 'out' ? '−' : l._dir === 'in' ? '+' : ''}${peso(l._amount)}` : '—'}
+                      <TD label="Amount" className={cn('whitespace-nowrap text-right tabular-nums',
+                        SIGN[l._dir] === '−' ? 'font-bold text-danger' : SIGN[l._dir] === '+' ? 'font-bold text-success' : 'font-medium text-subtle')}>
+                        {l._amount != null ? `${SIGN[l._dir] || ''}${peso(l._amount)}` : '—'}
                       </TD>
                       <TD label="When" className="whitespace-nowrap text-xs text-subtle">{fmtFull(l._when)}</TD>
                       <TD className="text-right"><ViewButton onClick={() => setSelected(l)} /></TD>

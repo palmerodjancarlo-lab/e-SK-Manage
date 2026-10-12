@@ -68,11 +68,14 @@ const getAbyipPrefill = async (req, res) => {
     const areas = Object.entries(groups).map(([area, rows]) => ({ area, rows }))
     const grandTotal = areas.reduce((s, a) => s + a.rows.reduce((t, r) => t + r.total, 0), 0)
 
-    // ── Signatories (from Users) ──
-    const [sec, chair] = await Promise.all([
+    // ── Signatories (from Users): Prepared by the Secretary, Certified by the Treasurer,
+    //    Approved by the Chairperson — the ABYIP format the SK uses
+    const [sec, treas, chair] = await Promise.all([
       User.findOne({ role: 'sk_secretary', isActive: true }).select('firstName lastName'),
+      User.findOne({ role: 'sk_treasurer', isActive: true }).select('firstName lastName'),
       User.findOne({ role: { $in: ['sk_chairperson', 'admin'] }, isActive: true }).select('firstName lastName'),
     ])
+    const nameOf = (u) => (u ? `${u.firstName} ${u.lastName}` : '')
 
     res.json({
       fiscalYear: year,
@@ -80,12 +83,9 @@ const getAbyipPrefill = async (req, res) => {
       areas,
       grandTotal,
       signatories: {
-        preparedBy: sec ? `${sec.firstName} ${sec.lastName}` : '',
-        preparedByTitle: 'SK Secretary',
-        recommendingApproval: chair ? `${chair.firstName} ${chair.lastName}` : '',
-        recommendingApprovalTitle: 'SK Chairperson',
-        notedApproved: '',                 // Punong Barangay — filled by the SK
-        notedApprovedTitle: 'Punong Barangay',
+        preparedBy: nameOf(sec),    preparedByTitle: 'SK Secretary',
+        certifiedBy: nameOf(treas), certifiedByTitle: 'SK Treasurer',
+        approvedBy: nameOf(chair),  approvedByTitle: 'SK Chairperson',
       },
     })
   } catch (e) {
@@ -223,61 +223,87 @@ const deleteReport = async (req, res) => {
   } catch (e) { serverError(res, e) }
 }
 
-// GET /api/finance/reports/accomplishment/prefill?year=2026
-// Planned (Program budget) vs Actual (approved expenses) per PPA, grouped by area.
-const getAccomplishmentPrefill = async (req, res) => {
+// GET /api/finance/reports/financial/prefill?year=2026  (old path: /reports/accomplishment/prefill)
+// The SK Financial Report for a fiscal year, built from the money records:
+//   I.  Statement of receipts and disbursements (beginning balance + receipts − disbursements)
+//   II. Fund utilization by PPA (ABYIP appropriation vs actual, reconciled to I)
+//   III. Disbursements by category   IV. Details of receipts and of disbursements
+// Only recorded (non-voided) funds and APPROVED (non-voided) expenses count.
+const SOURCE_LABEL = { barangay_allocation: '10% Barangay General Fund allocation', donation: 'Donations', grant: 'Grants', other: 'Other receipts (e.g. fund-raising)' }
+const getFinancialReportPrefill = async (req, res) => {
   try {
     const year = Number(req.query.year) || new Date().getFullYear()
-    const start = new Date(`${year}-01-01T00:00:00.000Z`)
-    const end = new Date(`${year}-12-31T23:59:59.999Z`)
+    // Philippine time, so Jan 1 00:00 and Dec 31 23:59 are local
+    const start = new Date(`${year}-01-01T00:00:00+08:00`)
+    const end = new Date(`${year}-12-31T23:59:59.999+08:00`)
+    const inYear = { $gte: start, $lte: end }
+    const sum = (rows) => rows.reduce((s, r) => s + num(r.amount), 0)
 
-    // Map project/activity → owning program so expenses tagged at any level roll up
-    const [projects, activities] = await Promise.all([
+    const [fundsBefore, spentBefore, funds, expenses, pending, projects, activities] = await Promise.all([
+      Fund.find({ isVoided: false, dateReceived: { $lt: start } }, 'amount'),
+      Expense.find({ status: 'approved', isVoided: false, dateSpent: { $lt: start } }, 'amount'),
+      Fund.find({ isVoided: false, dateReceived: inYear }).sort({ dateReceived: 1 }),
+      Expense.find({ status: 'approved', isVoided: false, dateSpent: inYear })
+        .populate('program', 'title referenceCode').sort({ dateSpent: 1 }),
+      Expense.find({ status: 'pending', isVoided: false, dateSpent: inYear }, 'amount'),
       Project.find({}, 'program'),
       Activity.find({}, 'program'),
     ])
-    const projMap = {}; projects.forEach((p) => { if (p.program) projMap[p._id.toString()] = p.program.toString() })
-    const actMap = {}; activities.forEach((a) => { if (a.program) actMap[a._id.toString()] = a.program.toString() })
 
-    const expenses = await Expense.find({ status: 'approved', isVoided: false, dateSpent: { $gte: start, $lte: end } })
-    const spentByProgram = {}
-    for (const e of expenses) {
-      const pid = (e.program && e.program.toString())
-        || (e.project && projMap[e.project.toString()])
-        || (e.activity && actMap[e.activity.toString()])
-      if (!pid) continue
-      spentByProgram[pid] = (spentByProgram[pid] || 0) + num(e.amount)
+    // I. Statement
+    const beginning = sum(fundsBefore) - sum(spentBefore)
+    const bySource = {}
+    funds.forEach((f) => { bySource[f.sourceType || 'other'] = (bySource[f.sourceType || 'other'] || 0) + num(f.amount) })
+    const receipts = Object.keys(SOURCE_LABEL).map((k) => ({ key: k, label: SOURCE_LABEL[k], amount: bySource[k] || 0 }))
+    const totalReceipts = sum(funds)
+    const disbursements = sum(expenses)
+    const statement = {
+      beginning, receipts, totalReceipts,
+      available: beginning + totalReceipts,
+      disbursements,
+      ending: beginning + totalReceipts - disbursements,
     }
 
+    // II. Utilization by PPA — expenses tagged at project/activity level roll up to their program
+    const projMap = {}; projects.forEach((p) => { if (p.program) projMap[String(p._id)] = String(p.program) })
+    const actMap = {}; activities.forEach((a) => { if (a.program) actMap[String(a._id)] = String(a.program) })
+    const programOf = (e) => (e.program && String(e.program._id || e.program))
+      || (e.project && projMap[String(e.project)]) || (e.activity && actMap[String(e.activity)]) || null
+    const spentByProgram = {}
+    let unlinked = 0
+    for (const e of expenses) {
+      const pid = programOf(e)
+      if (pid) spentByProgram[pid] = (spentByProgram[pid] || 0) + num(e.amount)
+      else unlinked += num(e.amount)
+    }
     const programs = await Program.find({
       $or: [
         { fiscalYear: year },
         { startDate: { $lte: end }, endDate: { $gte: start } },
-        { startDate: { $gte: start, $lte: end } },
+        { _id: { $in: Object.keys(spentByProgram) } }, // anything that had spending this year
       ],
-    }).populate('organizer', 'firstName lastName').sort({ area: 1, referenceCode: 1, createdAt: 1 })
-
-    const groups = {}
-    for (const p of programs) {
-      const area = p.area || 'General Program'
-      if (!groups[area]) groups[area] = []
+    }).sort({ area: 1, referenceCode: 1, createdAt: 1 })
+    const ppas = programs.map((p) => {
       const b = p.budget || {}
-      const planned = ((b.mooe || 0) + (b.personnelServices || 0) + (b.capitalOutlay || 0)) || num(p.totalBudget)
-      const actual = num(spentByProgram[p._id.toString()])
-      groups[area].push({
-        program: p._id,
-        referenceCode: p.referenceCode || '',
-        ppa: p.title,
-        planned,
-        actual,
-        status: p.status || '',
-        remarks: '',
-        personResponsible: p.personResponsible || (p.organizer ? `${p.organizer.firstName} ${p.organizer.lastName}` : ''),
-      })
-    }
-    const areas = Object.entries(groups).map(([area, rows]) => ({ area, rows }))
-    const totalPlanned = areas.reduce((s, a) => s + a.rows.reduce((t, r) => t + r.planned, 0), 0)
-    const totalActual = areas.reduce((s, a) => s + a.rows.reduce((t, r) => t + r.actual, 0), 0)
+      const appropriation = ((b.mooe || 0) + (b.personnelServices || 0) + (b.capitalOutlay || 0)) || num(p.totalBudget)
+      const actual = num(spentByProgram[String(p._id)])
+      return { program: p._id, area: p.area || 'General Program', referenceCode: p.referenceCode || '', ppa: p.title, appropriation, actual }
+    })
+
+    // III. By category
+    const byCat = {}
+    expenses.forEach((e) => { byCat[e.category || 'other'] = (byCat[e.category || 'other'] || 0) + num(e.amount) })
+    const categories = Object.entries(byCat).map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount)
+
+    // IV. Details
+    const receiptList = funds.map((f) => ({
+      date: f.dateReceived, source: f.source, sourceType: f.sourceType, referenceNumber: f.referenceNumber || '', purpose: f.purpose || '', amount: num(f.amount),
+    }))
+    const titleOf = Object.fromEntries(programs.map((p) => [String(p._id), p.title]))
+    const disbursementList = expenses.map((e) => ({
+      date: e.dateSpent, particulars: e.title, payee: e.vendor || '', receiptNumber: e.receiptNumber || '',
+      ppa: titleOf[programOf(e)] || e.program?.title || '', category: e.category || 'other', amount: num(e.amount),
+    }))
 
     const [treas, chair] = await Promise.all([
       User.findOne({ role: 'sk_treasurer', isActive: true }).select('firstName lastName'),
@@ -286,8 +312,9 @@ const getAccomplishmentPrefill = async (req, res) => {
 
     res.json({
       fiscalYear: year,
-      areas,
-      totals: { planned: totalPlanned, actual: totalActual, balance: totalPlanned - totalActual, pct: totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0 },
+      generatedAt: new Date(),
+      statement, ppas, unlinked, categories, receiptList, disbursementList,
+      pending: { count: pending.length, amount: sum(pending) },
       signatories: {
         preparedBy: treas ? `${treas.firstName} ${treas.lastName}` : '', preparedByTitle: 'SK Treasurer',
         recommendingApproval: chair ? `${chair.firstName} ${chair.lastName}` : '', recommendingApprovalTitle: 'SK Chairperson',
@@ -297,4 +324,4 @@ const getAccomplishmentPrefill = async (req, res) => {
   } catch (e) { serverError(res, e) }
 }
 
-module.exports = { getAbyipPrefill, getCbydpPrefill, getAccomplishmentPrefill, listReports, getReport, saveReport, updateReport, deleteReport }
+module.exports = { getAbyipPrefill, getCbydpPrefill, getFinancialReportPrefill, listReports, getReport, saveReport, updateReport, deleteReport }

@@ -12,7 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
   Wallet, TrendingUp, TrendingDown, Clock, Plus, Pencil, Ban, Check, X, History,
-  ShieldCheck, ScanLine, FileText, Upload, Loader2, Eye, Paperclip,
+  ShieldCheck, ScanLine, FileText, Upload, Loader2, Eye, Paperclip, FolderKanban, Link2, AlertTriangle,
 } from 'lucide-react';
 import api from '../../lib/api';
 import { peso, cn } from '../../lib/utils';
@@ -26,6 +26,8 @@ import useTableData from '../../lib/useTableData';
 import { FUND_SOURCES, humanize, isPdfUrl } from '../../lib/finance';
 import { uploadProof } from '../../lib/scanDocument';
 import DocumentScanner from '../../components/finance/DocumentScanner';
+import PpaPicker from '../../components/finance/PpaPicker';
+import { EMPTY_PPA } from '../../lib/finance';
 
 const fmt = (d) => (d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
 
@@ -51,8 +53,10 @@ export default function FinancePage() {
   const [reason, setReason] = useState(null);
   const [detail, setDetail] = useState(null);
   const [publishing, setPublishing] = useState(false);
+  const [linking, setLinking] = useState(null); // expense being linked to a PPA
 
   const summary = useQuery({ queryKey: ['fin-summary'], queryFn: async () => (await api.get('/finance/summary')).data });
+  const ppaQ = useQuery({ queryKey: ['budget', 'overview'], queryFn: async () => (await api.get('/budget/overview')).data.programs || [] });
   const fundsQ = useQuery({ queryKey: ['fin-funds'], queryFn: async () => (await api.get('/finance/funds')).data });
   const expsQ = useQuery({ queryKey: ['fin-expenses'], queryFn: async () => (await api.get('/finance/expenses')).data });
 
@@ -104,7 +108,7 @@ export default function FinancePage() {
         ))}
       </div>
 
-      {tab === 'overview' && (summary.isLoading ? <Center /> : <Overview s={s} head={head} onPublish={() => setPublishing(true)} />)}
+      {tab === 'overview' && (summary.isLoading ? <Center /> : <Overview s={s} head={head} onPublish={() => setPublishing(true)} ppas={ppaQ.data || []} onUnlinked={() => setTab('expenses')} />)}
 
       {tab === 'funds' && (
         <>
@@ -177,11 +181,14 @@ export default function FinancePage() {
                         <span className="block font-semibold text-fg hover:text-primary hover:underline">{e.title}</span>
                         <span className="mt-0.5 flex flex-wrap items-center justify-end gap-1.5 text-xs text-subtle sm:justify-start">
                           {humanize(e.category)}{e.vendor ? ` · ${e.vendor}` : ''}
-                          {e.program?.title ? ` · ${e.program.title}` : ''}
+
                           {e.items?.length > 0 && <Badge variant="info">{e.items.length} items</Badge>}
                           {e.source === 'scanned' && <Badge variant="default"><ScanLine className="h-3 w-3" /> Scanned</Badge>}
                         </span>
                       </button>
+                      {e.program?.title
+                        ? <div className="mt-1 flex items-center justify-end gap-1 text-xs text-muted sm:justify-start"><FolderKanban aria-hidden="true" className="h-3 w-3 shrink-0 text-primary" /><span className="truncate">{[e.program.title, e.project?.title, e.activity?.title].filter(Boolean).join(' › ')}</span></div>
+                        : !e.isVoided && e.status !== 'rejected' && <div className="mt-1 flex items-center justify-end gap-1 text-xs font-semibold text-warning sm:justify-start"><AlertTriangle aria-hidden="true" className="h-3 w-3" /> Not linked to a PPA</div>}
                       {e.status === 'rejected' && e.rejectionReason && <div className="mt-1 text-xs text-danger">Rejected: {e.rejectionReason}</div>}
                     </TD>
                     <TD label="Amount" className="text-right font-bold tabular-nums text-danger">{peso(e.amount)}</TD>
@@ -194,6 +201,9 @@ export default function FinancePage() {
                               <IconAction label={`Approve ${e.title}`} icon={Check} tone="success" onClick={() => setReason({ kind: 'approve', id: e._id })} />
                               <IconAction label={`Reject ${e.title}`} icon={X} tone="danger" onClick={() => setReason({ kind: 'reject', id: e._id })} />
                             </>
+                          )}
+                          {!e.isVoided && e.status !== 'rejected' && (
+                            <IconAction label={`${e.program ? 'Change the PPA of' : 'Link to a PPA:'} ${e.title}`} icon={Link2} onClick={() => setLinking(e)} />
                           )}
                           {e.status === 'approved' && !e.isVoided && (
                             <IconAction label={`Void ${e.title}`} icon={Ban} tone="danger" onClick={() => setReason({ kind: 'void-expense', id: e._id })} />
@@ -213,6 +223,7 @@ export default function FinancePage() {
       {reason && <ReasonModal state={reason} onClose={() => setReason(null)} onDone={() => { setReason(null); refresh(); }} />}
       {detail && <ExpenseDetail expense={detail} onClose={() => setDetail(null)} />}
       {scanner && <DocumentScanner open kind={scanner} onClose={() => setScanner(null)} onDone={refresh} />}
+      {linking && <LinkPpaModal expense={linking} onClose={() => setLinking(null)} onDone={() => { setLinking(null); refresh(); }} />}
       {publishing && <PublishBudgetModal s={s} onClose={() => setPublishing(false)} onDone={() => { setPublishing(false); refresh(); }} />}
     </>
   );
@@ -241,7 +252,7 @@ function StatusBadge({ status }) {
 }
 
 /* Overview: headline numbers + where money comes from and goes */
-function Overview({ s, head, onPublish }) {
+function Overview({ s, head, onPublish, ppas = [], onUnlinked }) {
   const funded = s.totalFunds || 0;
   const spent = s.totalExpenses || 0;
   const usedPct = funded > 0 ? Math.min(100, Math.round((spent / funded) * 100)) : 0;
@@ -255,6 +266,8 @@ function Overview({ s, head, onPublish }) {
       </div>
 
       <PublishedBudgetCard published={s.published} spent={spent} head={head} onEdit={onPublish} />
+
+      <BudgetByPpa ppas={ppas} totalSpent={spent} onUnlinked={onUnlinked} />
 
       <Card>
         <CardContent>
@@ -315,7 +328,7 @@ function ExpenseDetail({ expense: e, onClose }) {
           {e.receiptNumber && <div><dt className="text-xs text-subtle">Receipt no.</dt><dd className="font-medium text-fg">{e.receiptNumber}</dd></div>}
           <div><dt className="text-xs text-subtle">Status</dt><dd><StatusBadge status={e.isVoided ? 'voided' : e.status} /></dd></div>
           {e.recordedBy && <div><dt className="text-xs text-subtle">Recorded by</dt><dd className="font-medium text-fg">{e.recordedBy.firstName} {e.recordedBy.lastName}</dd></div>}
-          {e.program?.title && <div><dt className="text-xs text-subtle">Program</dt><dd className="font-medium text-fg">{e.program.title}{e.activity?.title ? ` › ${e.activity.title}` : ''}</dd></div>}
+          <div className="col-span-2"><dt className="text-xs text-subtle">PPA</dt><dd className="font-medium text-fg">{e.program?.title ? [e.program.title, e.project?.title, e.activity?.title].filter(Boolean).join(' › ') : <span className="text-warning">Not linked to a PPA</span>}</dd></div>
         </dl>
         {e.items?.length > 0 ? (
           <div>
@@ -452,7 +465,7 @@ function ReasonModal({ state, onClose, onDone }) {
         <Button variant={state.kind === 'approve' ? 'primary' : 'danger'} loading={m.isPending}
           disabled={needsReason && !text.trim()} onClick={() => m.mutate()}>{cfg.verb}</Button></>}>
       {needsReason
-        ? <Textarea label="Reason (required)" value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="State the reason — it is saved in the audit trail." />
+        ? <Textarea label="Reason (required)" value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="State the reason — it is saved in the audit logs." />
         : <p className="text-sm text-muted">Approving counts this expense against the balance. This action is logged.</p>}
     </Modal>
   );
@@ -523,6 +536,73 @@ function PublishBudgetModal({ s, onClose, onDone }) {
           Every change is saved in the audit log with the recorded funds at that time. Spending can't be changed here — it always comes from approved expenses.
         </p>
       </form>
+    </Modal>
+  );
+}
+
+/* Each PPA's budget against approved spending linked to it, plus spending linked to no PPA */
+function BudgetByPpa({ ppas, totalSpent, onUnlinked }) {
+  const rows = ppas.filter((p) => p.status !== 'cancelled' || p.spent > 0);
+  const linked = ppas.reduce((n, p) => n + (p.spent || 0), 0);
+  const unlinked = Math.max(0, totalSpent - linked);
+  return (
+    <Card>
+      <CardHeader><CardTitle>Budget by PPA</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        {rows.length === 0 ? <p className="text-sm text-muted">No programs yet. Add PPAs in Programs & Projects.</p> : rows.map((p) => {
+          const pct = p.totalBudget > 0 ? Math.min(100, Math.round((p.spent / p.totalBudget) * 100)) : 0;
+          const over = p.totalBudget > 0 && p.spent > p.totalBudget;
+          return (
+            <div key={p._id}>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+                <span className="min-w-0 truncate font-medium text-fg">{p.title}</span>
+                <span className="shrink-0 tabular-nums text-muted"><span className="font-semibold text-fg">{peso(p.spent)}</span> of {peso(p.totalBudget)}</span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface2" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`${p.title} budget used`}>
+                <div className={cn('h-full rounded-full', over ? 'bg-danger' : 'bg-primary')} style={{ width: `${pct}%` }} />
+              </div>
+              <p className="mt-1 text-xs text-subtle">{pct}% used{over ? ' — over budget' : ''}</p>
+            </div>
+          );
+        })}
+        {unlinked > 0 && (
+          <button type="button" onClick={onUnlinked}
+            className="flex w-full items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2.5 text-left text-sm transition-colors hover:bg-warning/15">
+            <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <span><span className="font-semibold text-fg">Not linked to any PPA: {peso(unlinked)}</span>
+              <span className="block text-xs text-muted">Approved spending that doesn’t show in Budget Utilization yet. Open Expenses and use the link button to assign each one to its PPA.</span></span>
+          </button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* Chairperson links an expense (often an older one) to the PPA it was spent on */
+function LinkPpaModal({ expense: e, onClose, onDone }) {
+  const [ppa, setPpa] = useState({
+    program: e.program?._id || e.program || '', project: e.project?._id || e.project || '', activity: e.activity?._id || e.activity || '',
+  });
+  const m = useMutation({
+    mutationFn: () => api.put(`/finance/expenses/${e._id}/ppa`, ppa),
+    onSuccess: (r) => { toast.success(r.data.message || 'Saved.'); onDone(); },
+    onError: (err) => toast.error(err.response?.data?.message || 'Could not link the expense.'),
+  });
+  const unchanged = String(ppa.program) === String(e.program?._id || e.program || '')
+    && String(ppa.project) === String(e.project?._id || e.project || '')
+    && String(ppa.activity) === String(e.activity?._id || e.activity || '');
+  return (
+    <Modal open onClose={onClose} size="lg" title="Link expense to a PPA"
+      description={`${e.title} · ${peso(e.amount)} · ${fmt(e.dateSpent)}`}
+      footer={<>
+        {e.program && <Button variant="ghost" className="mr-auto" onClick={() => setPpa(EMPTY_PPA)}>Clear</Button>}
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button loading={m.isPending} disabled={unchanged} onClick={() => m.mutate()}><Link2 className="h-4 w-4" /> Save</Button>
+      </>}>
+      <div className="space-y-3">
+        <PpaPicker value={ppa} onChange={setPpa} hint={false} />
+        <p className="text-xs text-subtle">{e.status === 'approved' ? 'It counts toward this PPA in Budget Utilization right away.' : 'It counts toward this PPA once you approve it.'} The change is recorded in the Audit Logs.</p>
+      </div>
     </Modal>
   );
 }

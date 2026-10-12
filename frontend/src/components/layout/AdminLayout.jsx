@@ -34,7 +34,7 @@ const buildNav = ({ pendingVerification = 0, pendingExpenses = 0 } = {}) => [
     { to: '/admin/rewards', label: 'Rewards & Points', icon: Gift },
   ] },
   { id: 'admin', label: 'Administration', items: [
-    { to: '/admin/logs', label: 'Audit Trail', icon: ScrollText },
+    { to: '/admin/logs', label: 'Audit Logs', icon: ScrollText },
     { to: '/admin/settings', label: 'Settings', icon: Settings },
   ] },
 ];

@@ -295,7 +295,7 @@ function TreasurerDash() {
           <QuickAction to="/sk/finance?record=expense" icon={<Wallet className="h-4 w-4" />} label="Record an expense" />
           <QuickAction to="/sk/finance?tab=expenses" icon={<FileText className="h-4 w-4" />} label="Review expenses" />
           <QuickAction to="/sk/reports/abyip" icon={<FileText className="h-4 w-4" />} label="Generate ABYIP report" />
-          <QuickAction to="/sk/rewards" icon={<Award className="h-4 w-4" />} label="Manage rewards & points" />
+          <QuickAction to="/sk/reports/financial" icon={<FileText className="h-4 w-4" />} label="Financial report" />
         </div>
 
         <SectionCard
