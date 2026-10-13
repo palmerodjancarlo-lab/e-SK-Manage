@@ -226,6 +226,9 @@ const deleteReport = async (req, res) => {
 //   II. Fund utilization by PPA (ABYIP appropriation vs actual, reconciled to I)
 //   III. Disbursements by category   IV. Details of receipts and of disbursements
 // Only recorded (non-voided) funds and APPROVED (non-voided) expenses count.
+// The beginning balance is NOT computed from older records (the system has no complete
+// history, so stray old entries made it wrong — even negative). It is the ending balance of
+// last year's finalized Financial report, or left blank for the Treasurer to fill in.
 const SOURCE_LABEL = { barangay_allocation: '10% Barangay General Fund allocation', donation: 'Donations', grant: 'Grants', other: 'Other receipts (e.g. fund-raising)' }
 const getFinancialReportPrefill = async (req, res) => {
   try {
@@ -236,9 +239,8 @@ const getFinancialReportPrefill = async (req, res) => {
     const inYear = { $gte: start, $lte: end }
     const sum = (rows) => rows.reduce((s, r) => s + num(r.amount), 0)
 
-    const [fundsBefore, spentBefore, funds, expenses, pending, projects, activities] = await Promise.all([
-      Fund.find({ isVoided: false, dateReceived: { $lt: start } }, 'amount'),
-      Expense.find({ status: 'approved', isVoided: false, dateSpent: { $lt: start } }, 'amount'),
+    const [prior, funds, expenses, pending, projects, activities] = await Promise.all([
+      Report.findOne({ type: 'accomplishment', fiscalYear: year - 1, status: { $in: ['finalized', 'submitted'] } }).sort({ updatedAt: -1 }),
       Fund.find({ isVoided: false, dateReceived: inYear }).sort({ dateReceived: 1 }),
       Expense.find({ status: 'approved', isVoided: false, dateSpent: inYear })
         .populate('program', 'title referenceCode').sort({ dateSpent: 1 }),
@@ -248,17 +250,20 @@ const getFinancialReportPrefill = async (req, res) => {
     ])
 
     // I. Statement
-    const beginning = sum(fundsBefore) - sum(spentBefore)
+    const priorEnding = prior?.data?.statement?.ending
+    const carried = typeof priorEnding === 'number' && Number.isFinite(priorEnding)
+    const beginning = carried ? priorEnding : ''
     const bySource = {}
     funds.forEach((f) => { bySource[f.sourceType || 'other'] = (bySource[f.sourceType || 'other'] || 0) + num(f.amount) })
     const receipts = Object.keys(SOURCE_LABEL).map((k) => ({ key: k, label: SOURCE_LABEL[k], amount: bySource[k] || 0 }))
     const totalReceipts = sum(funds)
     const disbursements = sum(expenses)
     const statement = {
-      beginning, receipts, totalReceipts,
-      available: beginning + totalReceipts,
+      beginning, beginningSource: carried ? `Ending balance of the FY ${year - 1} Financial report` : '',
+      receipts, totalReceipts,
+      available: num(beginning) + totalReceipts,
       disbursements,
-      ending: beginning + totalReceipts - disbursements,
+      ending: num(beginning) + totalReceipts - disbursements,
     }
 
     // II. Utilization by PPA — expenses tagged at project/activity level roll up to their program

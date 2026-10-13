@@ -4,7 +4,8 @@
 //   II.  Fund utilization by PPA (ABYIP appropriation vs actual; reconciles with I)
 //   III. Disbursements by category
 //   IV.  Details of receipts and of disbursements
-// Notes and signatories are editable. A saved report keeps its figures as they were when saved.
+// Editable: the beginning balance (carried from last year's finalized report, else blank), notes
+// and signatories. A saved report keeps its figures as they were when saved.
 // cspell:words PPAs
 import { Fragment, useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useLocation } from 'react-router-dom';
@@ -24,12 +25,13 @@ const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
 const SOURCE = { barangay_allocation: 'Barangay allocation', donation: 'Donation', grant: 'Grant', other: 'Other' };
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 const pctOf = (a, b) => (n(b) > 0 ? `${Math.round((n(a) / n(b)) * 100)}%` : '—');
+const isBlank = (v) => v === '' || v === null || v === undefined;
 
 // Everything the page shows comes from the prefill (or the saved snapshot of it)
 const fromRecords = (data) => ({
   fiscalYear: data.fiscalYear,
   generatedAt: data.generatedAt,
-  statement: data.statement || { beginning: 0, receipts: [], totalReceipts: 0, available: 0, disbursements: 0, ending: 0 },
+  statement: data.statement || { beginning: '', receipts: [], totalReceipts: 0, available: 0, disbursements: 0, ending: 0 },
   ppas: data.ppas || [],
   unlinked: n(data.unlinked),
   categories: data.categories || [],
@@ -117,6 +119,9 @@ export default function FinancialReport() {
         setStatus(r.data.report?.status || 'draft');
         // Reports saved before the redesign have no statement — read their year's figures from records
         const figures = saved.statement && !fresh ? fromRecords(saved) : fromRecords(await prefill(fy));
+        if (fresh && saved.statement && !isBlank(saved.statement.beginning) && isBlank(figures.statement.beginning)) {
+          figures.statement = { ...figures.statement, beginning: saved.statement.beginning, beginningSource: saved.statement.beginningSource || '' };
+        }
         setDoc({ ...figures, notes: saved.notes || '', signatories: saved.signatories || {} });
         setDirty(fresh);
         return;
@@ -135,6 +140,13 @@ export default function FinancialReport() {
 
   const st = doc.statement;
   const fy = doc.fiscalYear;
+  // Balances follow the beginning balance, which the Treasurer may type in
+  const blankStart = isBlank(st.beginning);
+  const available = n(st.beginning) + n(st.totalReceipts);
+  const ending = available - n(st.disbursements);
+  // Brackets mean a deduction — only when something was actually spent
+  const lessText = n(st.disbursements) > 0 ? `(${money(st.disbursements)})` : money(0);
+  const setBeginning = (v) => edit((d) => ({ ...d, statement: { ...d.statement, beginning: v, beginningSource: '' } }));
   const setSig = (k, v) => edit((d) => ({ ...d, signatories: { ...d.signatories, [k]: v } }));
   const appropriation = doc.ppas.reduce((sum, p) => sum + n(p.appropriation), 0);
   const ppaActual = doc.ppas.reduce((sum, p) => sum + n(p.actual), 0) + doc.unlinked;
@@ -142,6 +154,7 @@ export default function FinancialReport() {
   const receiptTotal = doc.receiptList.reduce((sum, r) => sum + n(r.amount), 0);
   const autoNotes = [
     'Figures are taken from the funds received and the expenses approved by the SK Chairperson in e-SK Manage. Voided entries are excluded.',
+    blankStart ? `No beginning balance was entered for January 1, ${fy}.` : st.beginningSource ? `The beginning balance is the ${st.beginningSource.charAt(0).toLowerCase()}${st.beginningSource.slice(1)}.` : `The beginning balance was entered by the SK Treasurer from the FY ${fy - 1} records.`,
     doc.pending.count > 0 && `${doc.pending.count} expense${doc.pending.count === 1 ? '' : 's'} worth ₱ ${money(doc.pending.amount)} still awaiting approval ${doc.pending.count === 1 ? 'is' : 'are'} not included.`,
     doc.unlinked > 0 && `₱ ${money(doc.unlinked)} of disbursements is not yet charged to a PPA; it is shown on its own line in Section II so the totals agree with Section I.`,
   ].filter(Boolean);
@@ -156,7 +169,7 @@ export default function FinancialReport() {
         periodStart: `${fy}-01-01`,
         periodEnd: `${fy}-12-31`,
         data: doc,
-        summary: { beginning: st.beginning, receipts: st.totalReceipts, disbursements: st.disbursements, ending: st.ending, appropriation },
+        summary: { beginning: blankStart ? null : n(st.beginning), receipts: st.totalReceipts, disbursements: st.disbursements, ending, appropriation },
         status: nextStatus,
       });
       setSavedId(id); setStatus(nextStatus); setDirty(false);
@@ -176,13 +189,13 @@ export default function FinancialReport() {
     const band = 'background:#f2b6b6;';
 
     const s1 = table(`${th('Particulars')}${th('Amount', 'right')}${th('Total', 'right')}`, [
-      `<tr>${td(`Beginning balance, January 1, ${fy}`)}${td('')}${td(peso(st.beginning), 'right', true)}</tr>`,
+      `<tr>${td(`Beginning balance, January 1, ${fy}`)}${td('')}${td(blankStart ? '' : peso(st.beginning), 'right', true)}</tr>`,
       `<tr>${td('Add: Receipts', 'left', true)}${td('')}${td('')}</tr>`,
       ...st.receipts.map((r) => `<tr>${td(esc(r.label), 'left', false, 'padding-left:22px;')}${td(money(r.amount), 'right')}${td('')}</tr>`),
       `<tr>${td('Total receipts', 'left', false, 'padding-left:22px;')}${td('')}${td(peso(st.totalReceipts), 'right', true)}</tr>`,
-      `<tr>${td('Total funds available', 'left', true)}${td('')}${td(peso(st.available), 'right', true)}</tr>`,
-      `<tr>${td('Less: Disbursements (approved expenses)', 'left', true)}${td('')}${td(`(${money(st.disbursements)})`, 'right', true)}</tr>`,
-      `<tr>${td(`Ending balance, December 31, ${fy}`, 'left', true, band)}${td('', 'left', false, band)}${td(peso(st.ending), 'right', true, band)}</tr>`,
+      `<tr>${td('Total funds available', 'left', true)}${td('')}${td(peso(available), 'right', true)}</tr>`,
+      `<tr>${td('Less: Disbursements (approved expenses)', 'left', true)}${td('')}${td(lessText, 'right', true)}</tr>`,
+      `<tr>${td(`Ending balance, December 31, ${fy}`, 'left', true, band)}${td('', 'left', false, band)}${td(peso(ending), 'right', true, band)}</tr>`,
     ].join(''));
 
     const s2rows = Object.entries(areas).map(([area, rows]) =>
@@ -241,16 +254,17 @@ export default function FinancialReport() {
       />
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Total icon={Wallet} label="Balance, Jan 1" value={`₱ ${money(st.beginning)}`} />
+        <Total icon={Wallet} label="Balance, Jan 1" value={blankStart ? '—' : `₱ ${money(st.beginning)}`} tone={blankStart ? 'text-muted' : 'text-fg'} />
         <Total icon={ArrowDownToLine} label="Receipts" value={`₱ ${money(st.totalReceipts)}`} tone="text-success" />
         <Total icon={ArrowUpFromLine} label="Disbursements" value={`₱ ${money(st.disbursements)}`} tone="text-danger" />
-        <Total icon={PiggyBank} label="Balance, Dec 31" value={`₱ ${money(st.ending)}`} tone={st.ending < 0 ? 'text-danger' : 'text-fg'} />
+        <Total icon={PiggyBank} label="Balance, Dec 31" value={`₱ ${money(ending)}`} tone={ending < 0 ? 'text-danger' : 'text-fg'} />
       </div>
 
       <div className="flex flex-wrap items-start gap-3 rounded-xl border border-border bg-surface2 p-3 text-xs text-muted">
         <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <p className="min-w-0 flex-1">
-          The amounts cannot be typed over — they come from Budget &amp; Finance, so the report always matches the records.
+          The amounts come from Budget &amp; Finance and cannot be typed over, so the report always matches the records —
+          only the beginning balance (cash carried over from FY {fy - 1}) is entered here.
           To correct a figure, fix the fund or expense there{savedId ? ' and update this report' : ''}.
           {doc.generatedAt && <> Figures as of {new Date(doc.generatedAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}.</>}
         </p>
@@ -263,15 +277,28 @@ export default function FinancialReport() {
         <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full text-xs sm:text-sm">
             <tbody>
-              <tr className="border-b border-border"><td className="px-3 py-2 font-semibold text-fg">Beginning balance, January 1, {fy}</td><td /><td className="whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums text-fg">₱ {money(st.beginning)}</td></tr>
+              <tr className="border-b border-border">
+                <td colSpan={2} className="px-3 py-2">
+                  <label htmlFor="fr-beginning" className="font-semibold text-fg">Beginning balance, January 1, {fy}</label>
+                  <p className="text-[11px] text-muted">{st.beginningSource || `Cash carried over from FY ${fy - 1}. Leave blank if none.`}</p>
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <div className="ml-auto flex w-28 items-center sm:w-36 gap-1 rounded-lg border border-border bg-surface px-2 focus-within:border-primary">
+                    <span aria-hidden="true" className="font-bold text-muted">₱</span>
+                    <input id="fr-beginning" type="number" min="0" step="0.01" inputMode="decimal" value={st.beginning ?? ''} placeholder="Blank"
+                      onChange={(e) => setBeginning(e.target.value)}
+                      className="min-h-[36px] w-full bg-transparent text-right font-bold tabular-nums text-fg outline-none placeholder:font-normal placeholder:text-muted" />
+                  </div>
+                </td>
+              </tr>
               <tr><td className="px-3 pt-2 font-semibold text-fg" colSpan={3}>Add: Receipts</td></tr>
               {st.receipts.map((r) => (
                 <tr key={r.key}><td className="py-1 pl-6 pr-3 text-muted sm:pl-8">{r.label}</td><td className="whitespace-nowrap px-3 py-1 text-right tabular-nums text-fg">{money(r.amount)}</td><td /></tr>
               ))}
               <tr className="border-b border-border"><td className="py-2 pl-6 pr-3 text-fg sm:pl-8">Total receipts</td><td /><td className="whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums text-fg">₱ {money(st.totalReceipts)}</td></tr>
-              <tr className="border-b border-border"><td className="px-3 py-2 font-semibold text-fg">Total funds available</td><td /><td className="whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums text-fg">₱ {money(st.available)}</td></tr>
-              <tr className="border-b border-border"><td className="px-3 py-2 font-semibold text-fg">Less: Disbursements (approved expenses)</td><td /><td className="whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums text-danger">({money(st.disbursements)})</td></tr>
-              <tr className="bg-primary/10"><td className="px-3 py-2.5 font-extrabold text-fg">Ending balance, December 31, {fy}</td><td /><td className={`whitespace-nowrap px-3 py-2.5 text-right font-extrabold tabular-nums ${st.ending < 0 ? 'text-danger' : 'text-fg'}`}>₱ {money(st.ending)}</td></tr>
+              <tr className="border-b border-border"><td className="px-3 py-2 font-semibold text-fg">Total funds available</td><td /><td className="whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums text-fg">₱ {money(available)}</td></tr>
+              <tr className="border-b border-border"><td className="px-3 py-2 font-semibold text-fg">Less: Disbursements (approved expenses)</td><td /><td className={`whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums ${n(st.disbursements) > 0 ? 'text-danger' : 'text-fg'}`}>{lessText}</td></tr>
+              <tr className="bg-primary/10"><td className="px-3 py-2.5 font-extrabold text-fg">Ending balance, December 31, {fy}</td><td /><td className={`whitespace-nowrap px-3 py-2.5 text-right font-extrabold tabular-nums ${ending < 0 ? 'text-danger' : 'text-fg'}`}>₱ {money(ending)}</td></tr>
             </tbody>
           </table>
         </div>

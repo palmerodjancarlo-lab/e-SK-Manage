@@ -23,6 +23,7 @@ const Expense  = require('../models/Expense')
 const User     = require('../models/User')
 const Project  = require('../models/Project')
 const Activity = require('../models/Activity')
+const Report   = require('../models/Report')
 const { getFinancialReportPrefill, getAbyipPrefill } = require('../controllers/reportController')
 
 const makeReq = (query) => httpMocks.createRequest({ query, user: { _id: 't1', role: 'sk_treasurer' }, headers: {} })
@@ -72,6 +73,7 @@ beforeEach(() => {
   Activity.find = jest.fn(() => query([]))
   Program.find = jest.fn(() => query([educ, sports]))
   User.findOne = jest.fn(() => query({ firstName: 'Tess', lastName: 'Reyes' }))
+  Report.findOne = jest.fn(() => query(null))            // no finalized report for last year
 })
 
 const run = async (year = '2026') => {
@@ -81,16 +83,35 @@ const run = async (year = '2026') => {
 }
 
 describe('Financial report', () => {
-  test('statement: beginning balance + receipts − disbursements = ending balance', async () => {
+  test('statement: receipts − disbursements; beginning balance blank when last year has no finalized report', async () => {
     const { statement } = await run()
-    expect(statement.beginning).toBe(4000)                 // 5,000 in 2025 − 1,000 spent in 2025
+    expect(statement.beginning).toBe('')                   // NOT 5,000 − 1,000 from loose 2025 records
     expect(statement.totalReceipts).toBe(53000)            // voided grant and 2027 money excluded
     expect(statement.receipts.find((r) => r.key === 'barangay_allocation').amount).toBe(50000)
     expect(statement.receipts.find((r) => r.key === 'donation').amount).toBe(3000)
     expect(statement.receipts.find((r) => r.key === 'grant').amount).toBe(0)
-    expect(statement.available).toBe(57000)
+    expect(statement.available).toBe(53000)
     expect(statement.disbursements).toBe(14000)            // pending and voided excluded
-    expect(statement.ending).toBe(43000)
+    expect(statement.ending).toBe(39000)
+  })
+
+  test('an old expense with no funds that year can never make the beginning balance negative', async () => {
+    expenses.push({ title: 'Test receipt', amount: 8500, status: 'approved', isVoided: false, dateSpent: d('2025-04-15'), category: 'other' })
+    try {
+      const { statement } = await run()
+      expect(statement.beginning).toBe('')
+      expect(statement.ending).toBe(39000)
+    } finally { expenses.pop() }
+  })
+
+  test('beginning balance carries over the ending balance of last year’s finalized report', async () => {
+    Report.findOne = jest.fn(() => query({ data: { statement: { ending: 12345.5 } } }))
+    const { statement } = await run()
+    expect(Report.findOne).toHaveBeenCalledWith(expect.objectContaining({ type: 'accomplishment', fiscalYear: 2025, status: { $in: ['finalized', 'submitted'] } }))
+    expect(statement.beginning).toBe(12345.5)
+    expect(statement.beginningSource).toMatch(/FY 2025 Financial report/)
+    expect(statement.available).toBe(65345.5)
+    expect(statement.ending).toBe(51345.5)
   })
 
   test('PPA utilization rolls project spending up to its program and reconciles with the statement', async () => {
@@ -116,7 +137,7 @@ describe('Financial report', () => {
 
   test('a year with no records is all zeros', async () => {
     const r = await run('2020')
-    expect(r.statement).toEqual(expect.objectContaining({ beginning: 0, totalReceipts: 0, disbursements: 0, ending: 0 }))
+    expect(r.statement).toEqual(expect.objectContaining({ beginning: '', totalReceipts: 0, disbursements: 0, ending: 0 }))
     expect(r.categories).toEqual([])
   })
 })
