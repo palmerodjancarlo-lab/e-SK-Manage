@@ -19,21 +19,18 @@ const fmtMonthYear = (d) => new Date(d).toLocaleDateString('en-PH', { month: 'lo
 const getAbyipPrefill = async (req, res) => {
   try {
     const year = Number(req.query.year) || new Date().getFullYear()
-    const start = new Date(`${year}-01-01T00:00:00.000Z`)
-    const end = new Date(`${year}-12-31T23:59:59.999Z`)
+    const start = new Date(`${year}-01-01T00:00:00+08:00`) // Philippine time
+    const end = new Date(`${year}-12-31T23:59:59.999+08:00`)
 
     // ── Funding header (from Fund records) ──
     const yearFunds = await Fund.find({ isVoided: false, dateReceived: { $gte: start, $lte: end } })
     const tenPercentGF = yearFunds.filter(f => f.sourceType === 'barangay_allocation').reduce((s, f) => s + num(f.amount), 0)
     const fundRaising = yearFunds.filter(f => f.sourceType !== 'barangay_allocation').reduce((s, f) => s + num(f.amount), 0)
 
-    // Beginning balance = carry-over before this year (funds in − approved expenses out)
-    const [priorFunds, priorExpenses] = await Promise.all([
-      Fund.aggregate([{ $match: { isVoided: false, dateReceived: { $lt: start } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
-      Expense.aggregate([{ $match: { status: 'approved', isVoided: false, dateSpent: { $lt: start } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
-    ])
-    const beginningBalance = num(priorFunds[0]?.total) - num(priorExpenses[0]?.total)
-    const totalAvailable = beginningBalance + tenPercentGF + fundRaising
+    // Beginning balance is left blank for the SK to fill in: the system has no complete
+    // record of earlier years, so a computed carry-over can be wrong (even negative).
+    const beginningBalance = ''
+    const totalAvailable = tenPercentGF + fundRaising
 
     // ── PPA rows (Programs for this year), grouped by area ──
     const programs = await Program.find({

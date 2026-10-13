@@ -16,15 +16,18 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 const cellCls = 'w-full resize-none bg-transparent px-1 py-1 text-xs text-fg outline-none focus:bg-primary/5 rounded';
 const numCls = cellCls + ' text-right tabular-nums';
 
-function NumField({ label, value, onChange }) {
+function NumField({ label, value, onChange, placeholder }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-3">
       <label className="text-[11px] font-bold uppercase tracking-wide text-muted">{label}</label>
-      <input type="number" value={value} onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full bg-transparent text-lg font-extrabold tabular-nums text-fg outline-none" />
+      <input type="number" value={value ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+        className="mt-1 w-full bg-transparent text-lg font-extrabold tabular-nums text-fg outline-none placeholder:text-sm placeholder:font-normal placeholder:text-muted" />
     </div>
   );
 }
+
+// A blank beginning balance prints as an empty cell, not 0.00
+const isBlank = (v) => v === '' || v === null || v === undefined;
 
 function SigField({ heading, name, title, onName, onTitle }) {
   return (
@@ -63,7 +66,7 @@ export default function AbyipReport() {
         if (saved) {
           setDoc({
             fiscalYear: saved.fiscalYear || r.data.report.fiscalYear || y,
-            fundingHeader: saved.fundingHeader || { beginningBalance: 0, tenPercentGF: 0, fundRaising: 0 },
+            fundingHeader: saved.fundingHeader || { beginningBalance: '', tenPercentGF: 0, fundRaising: 0 },
             areas: (saved.areas && saved.areas.length) ? saved.areas : [{ area: 'General Administrative Program', rows: [] }],
             signatories: abyipSignatories(saved.signatories),
           });
@@ -74,7 +77,7 @@ export default function AbyipReport() {
       setDirty(false);
       setDoc({
         fiscalYear: data.fiscalYear,
-        fundingHeader: data.fundingHeader || { beginningBalance: 0, tenPercentGF: 0, fundRaising: 0 },
+        fundingHeader: data.fundingHeader || { beginningBalance: '', tenPercentGF: 0, fundRaising: 0 },
         areas: (data.areas && data.areas.length) ? data.areas : [{ area: 'General Administrative Program', rows: [] }],
         signatories: abyipSignatories(data.signatories),
       });
@@ -141,7 +144,7 @@ export default function AbyipReport() {
     return `<div style="font-family:Arial,sans-serif;font-size:11px;color:#111;">
       ${letterhead(`ANNUAL BARANGAY YOUTH INVESTMENT PROGRAM (ABYIP) F.Y. ${doc.fiscalYear}`)}
       <table style="border-collapse:collapse;margin-bottom:8px;">
-        <tr><td style="border:1px solid #333;padding:3px 6px;">Beginning Balance from Year ${doc.fiscalYear - 1}</td><td style="border:1px solid #333;padding:3px 6px;text-align:right;">${money(doc.fundingHeader.beginningBalance)}</td></tr>
+        <tr><td style="border:1px solid #333;padding:3px 6px;">Beginning Balance from Year ${doc.fiscalYear - 1}</td><td style="border:1px solid #333;padding:3px 6px;text-align:right;">${isBlank(doc.fundingHeader.beginningBalance) ? '' : money(doc.fundingHeader.beginningBalance)}</td></tr>
         <tr><td style="border:1px solid #333;padding:3px 6px;">10% of the Barangay General Fund of ${doc.fiscalYear}</td><td style="border:1px solid #333;padding:3px 6px;text-align:right;">${money(doc.fundingHeader.tenPercentGF)}</td></tr>
         <tr><td style="border:1px solid #333;padding:3px 6px;">Receipts from fund raising activities</td><td style="border:1px solid #333;padding:3px 6px;text-align:right;">${money(doc.fundingHeader.fundRaising)}</td></tr>
         <tr><td style="border:1px solid #333;padding:3px 6px;font-weight:bold;">Total</td><td style="border:1px solid #333;padding:3px 6px;text-align:right;font-weight:bold;">${money(totalAvailable)}</td></tr>
@@ -170,7 +173,7 @@ export default function AbyipReport() {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <NumField label={`Beginning Balance (${doc.fiscalYear - 1})`} value={doc.fundingHeader.beginningBalance} onChange={(v) => setHeader('beginningBalance', v)} />
+        <NumField label={`Beginning Balance (${doc.fiscalYear - 1})`} value={doc.fundingHeader.beginningBalance} onChange={(v) => setHeader('beginningBalance', v)} placeholder="Blank — type if any" />
         <NumField label="10% of Barangay General Fund" value={doc.fundingHeader.tenPercentGF} onChange={(v) => setHeader('tenPercentGF', v)} />
         <NumField label="Fund-raising Receipts" value={doc.fundingHeader.fundRaising} onChange={(v) => setHeader('fundRaising', v)} />
         <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">

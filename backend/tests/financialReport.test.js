@@ -23,7 +23,7 @@ const Expense  = require('../models/Expense')
 const User     = require('../models/User')
 const Project  = require('../models/Project')
 const Activity = require('../models/Activity')
-const { getFinancialReportPrefill } = require('../controllers/reportController')
+const { getFinancialReportPrefill, getAbyipPrefill } = require('../controllers/reportController')
 
 const makeReq = (query) => httpMocks.createRequest({ query, user: { _id: 't1', role: 'sk_treasurer' }, headers: {} })
 const makeRes = () => {
@@ -118,5 +118,17 @@ describe('Financial report', () => {
     const r = await run('2020')
     expect(r.statement).toEqual(expect.objectContaining({ beginning: 0, totalReceipts: 0, disbursements: 0, ending: 0 }))
     expect(r.categories).toEqual([])
+  })
+})
+
+describe('ABYIP funding header', () => {
+  test('beginning balance is left blank — an expense dated in an earlier year does not make it negative', async () => {
+    const res = makeRes()
+    await getAbyipPrefill(makeReq({ year: '2026' }), res)
+    const h = res._json.fundingHeader
+    expect(h.beginningBalance).toBe('')                    // 2025 had ₱1,000 spent against ₱5,000 — still not computed
+    expect(h.tenPercentGF).toBe(50000)
+    expect(h.fundRaising).toBe(3000)
+    expect(h.totalAvailable).toBe(53000)
   })
 })
